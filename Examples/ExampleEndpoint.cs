@@ -1,21 +1,17 @@
-using System.Collections;
-using System.Collections.Generic;
+using OmiLAXR.Composers;
+using OmiLAXR.Endpoints;
 using UnityEngine;
 
 namespace OmiLAXR.Adapters.YOUR_ADAPTER_NAME
 {
-    public class ExampleEndpoint : MonoBehaviour
+    [AddComponentMenu("OmiLAXR / 6) Endpoints / Example Endpoint (Adapter.YOUR_ADAPTER_NAME)")]
+    public sealed class ExampleEndpoint : DataEndpoint
     {
-        // Start is called before the first frame update
-        void Start()
+        protected override TransferCode HandleSending(IStatement statement)
         {
-        
-        }
-
-        // Update is called once per frame
-        void Update()
-        {
-        
+            // do something here e.g. saving in LRS, locally or MongoDB
+            Debug.Log(statement);
+            return TransferCode.Success;
         }
     }
 }

@@ -1,21 +1,22 @@
-using System.Collections;
-using System.Collections.Generic;
+using OmiLAXR.TrackingBehaviours;
 using UnityEngine;
 
 namespace OmiLAXR.Adapters.YOUR_ADAPTER_NAME
 {
-    public class ExampleTrackingBehaviour : MonoBehaviour
+    [AddComponentMenu("OmiLAXR / 3) Tracking Behaviours / Example Tracking Behaviour (Adapter.YOUR_ADAPTER_NAME)")]
+    public sealed class ExampleTrackingBehaviour : TrackingBehaviour
     {
-        // Start is called before the first frame update
-        void Start()
+        public event TrackingBehaviourAction<ExampleComponent, int> OnExampleEvent; 
+        protected override void AfterFilteredObjects(Object[] objects)
         {
-        
-        }
-
-        // Update is called once per frame
-        void Update()
-        {
-        
+            var exampleComponents = Select<ExampleComponent>(objects);
+            foreach (var e in exampleComponents)
+            {
+                e.exampleEvent += (randomValue) =>
+                {
+                    OnExampleEvent?.Invoke(this, e, randomValue);
+                };
+            }
         }
     }
 }

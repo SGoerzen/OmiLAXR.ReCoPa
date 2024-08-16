@@ -5,8 +5,8 @@ using UnityEngine;
 
 namespace OmiLAXR.Adapters.YOUR_ADAPTER_NAME
 {
-    [AddComponentMenu("OmiLAXR / 5) Hooks / Example Hook (xAPI)")]
-    public class ExampleHook : xApiStatementHook
+    [AddComponentMenu("OmiLAXR / 5) Hooks / Example Hook (Adapter.YOUR_ADAPTER_NAME)")]
+    public sealed class ExampleHook : xApiStatementHook
     {
         private void Start()
         {

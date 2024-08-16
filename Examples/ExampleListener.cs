@@ -1,21 +1,15 @@
-using System.Collections;
-using System.Collections.Generic;
+using OmiLAXR.Listeners;
 using UnityEngine;
 
 namespace OmiLAXR.Adapters.YOUR_ADAPTER_NAME
 {
-    public class ExampleListener : MonoBehaviour
+    [AddComponentMenu("OmiLAXR / 1) Listeners / Example Listener (Adapter.YOUR_ADAPTER_NAME)")]
+    public sealed class ExampleListener : Listener
     {
-        // Start is called before the first frame update
-        void Start()
+        public override void StartListening()
         {
-        
-        }
-
-        // Update is called once per frame
-        void Update()
-        {
-        
+            var exampleComponents = FindObjectsOfType<ExampleComponent>();
+            Found(exampleComponents);
         }
     }
 }
