@@ -1,0 +1,22 @@
+{
+    "name": "OmiLAXR.Adapters.YOUR_ADAPTER_NAME.Tests.Runtime",
+    "rootNamespace": "OmiLAXR.Adapters.YOUR_ADAPTER_NAME.Tests.Runtime",
+    "references": [
+        "UnityEngine.TestRunner",
+        "UnityEditor.TestRunner",
+        "OmiLAXR"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": true,
+    "precompiledReferences": [
+        "nunit.framework.dll"
+    ],
+    "autoReferenced": false,
+    "defineConstraints": [
+        "UNITY_INCLUDE_TESTS"
+    ],
+    "versionDefines": [],
+    "noEngineReferences": false
+}
