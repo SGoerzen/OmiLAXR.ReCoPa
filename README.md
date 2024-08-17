@@ -6,6 +6,7 @@ Each folder has own `README.md` files with more instructions.
 The adapter has following third-party dependencies:
 
 - `com.pimdewitte.unitymainthreaddispatcher`: For dispatching main game thread from asynchronous socket io thread.
+- ``
 
 ## Install by using scoped registry
 1. Ensure in "Project settings" > "Package Manager" that you have the scoped registry with following settings:
