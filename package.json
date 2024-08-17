@@ -1,29 +1,32 @@
 {
-  "name": "com.rwth.unity.omilaxr.adapters.your_adapter_name",
+  "name": "com.rwth.unity.omilaxr.modules.recopa",
   "version": "2.0.0",
-  "displayName": "OmiLAXR.Adapters.YOUR_ADAPTER_NAME",
-  "description": "An OmiLAXR adapter for ...ADAPTER_TASK...",
+  "displayName": "OmiLAXR.Modules.ReCoPa",
+  "description": "An OmiLAXR module for managing communication between ReCoPa and OmiLAXR.",
   "unity": "2021.3",
   "unityRelease": "15f1",
-  "documentationUrl": "YOUR_REPOSITORY_URL/-/wikis",
-  "changelogUrl": "YOUR_REPOSITORY_URL/-/blob/main/CHANGELOG",
-  "licensesUrl": "YOUR_REPOSITORY_URL/-/blob/main/LICENSE",
-  "homepage": "ADAPTER_HOMEPAGE_URL",
+  "documentationUrl": "https://gitlab.com/learntech-rwth/omilaxr-framework/v2/omilaxr.modules.recopa/-/wikis",
+  "changelogUrl": "https://gitlab.com/learntech-rwth/omilaxr-framework/v2/omilaxr.modules.recopa/-/blob/main/CHANGELOG",
+  "licensesUrl": "https://gitlab.com/learntech-rwth/omilaxr-framework/v2/omilaxr.modules.recopa/-/blob/main/LICENSE",
+  "homepage": "https://omilaxr.dev/",
   "dependencies": {
     "com.rwth.unity.omilaxr": "2.0.0",
-    "com.unity.nuget.newtonsoft-json": "3.0.2"
+    "com.unity.nuget.newtonsoft-json": "3.0.2",
+    "com.itisnajim.socketiounity": "1.1.4"
   },
   "keywords": [
     "OmiLAXR",
-    "OmiLAXR.Adapter",
+    "OmiLAXR Module",
+    "ReCoPa",
+    "Researcher Companion Panel",
     "Learning Analytics",
     "Virtual Reality",
     "Augmented Reality",
     "eXtended Reality"
   ],
   "author": {
-    "name": "YOUR_NAME",
-    "email": "YOUR@EMAIL.com",
-    "url": "YOUR_PERSONAL_HOMEPAGE_URL"
+    "name": "Sergej Görzen",
+    "email": "goerzen@cs.rwth-aachen.de",
+    "url": "https://elearn.rwth-aachen.de/goerzen"
   }
 }

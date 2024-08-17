@@ -4,7 +4,7 @@ using UnityEngine.TestTools;
 using System.Collections;
 using UnityEditor;
 
-namespace OmiLAXR.Adapters.Tests
+namespace OmiLAXR.Modules.ReCoPa.Tests
 {
     public class OmiLAXR_YOUR_ADAPTER_NAME_Tests
     {

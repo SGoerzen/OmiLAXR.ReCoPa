@@ -1,10 +1,13 @@
 {
-    "name": "OmiLAXR.Adapters.YOUR_ADAPTER_NAME",
-    "rootNamespace": "OmiLAXR.Adapters.YOUR_ADAPTER_NAME",
+    "name": "OmiLAXR.Modules.ReCoPa",
+    "rootNamespace": "OmiLAXR.Modules.ReCoPa",
     "references": [
         "GUID:92238810d69db43818b28b85251b4b3c",
         "GUID:5b80f9e8c84ce594bbd1284cff4292dd",
-        "GUID:8f840851d92754fd89291b0b86a5a78b"
+        "GUID:8f840851d92754fd89291b0b86a5a78b",
+        "GUID:ac740251aebda49e8bf622aa1652e9e3",
+        "GUID:870f05f79e1a5df4f9526b627661064e",
+        "OmiLAXR"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],
