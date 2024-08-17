@@ -1,5 +1,4 @@
 using System;
-using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using Newtonsoft.Json.Linq;
@@ -23,8 +22,8 @@ namespace OmiLAXR.Modules.ReCoPa
     /// This adapter is needed to connect OmiLAXR Tracking System with the Researcher Companion Panel.
     /// </summary>
     [RequireComponent(typeof(SocketIOUnity), typeof(UnityMainThreadDispatcher))]
-    [AddComponentMenu("OmiLAXR / Modules / ReCoPa Connector")]
-    public class RecopaConnector : MonoBehaviour, IDebugSender
+    [AddComponentMenu("OmiLAXR / Modules / ReCoPa")]
+    public class ReCoPa : Module, IDebugSender
     {
         public string connectionUrl = "http://127.0.0.1:4567";
 
@@ -75,44 +74,34 @@ namespace OmiLAXR.Modules.ReCoPa
             // }
 
             // Disable learner tracking
+
+            if (_learnerPipeline)
+            {
+                DebugLog.Warning("Cannot find a <LearnerPipeline>.");
+                return;
+            }
+            
             _learnerPipeline.gameObject.SetActive(false);
 
             _learnerPipeline.onStartedPipeline += () =>
             {
+                _wasTracking = true;
                 SendMeta("tracking:start");
             };
             _learnerPipeline.onStoppedPipeline += () =>
             {
+                _wasTracking = false;
                 SendMeta("tracking:stop");
             };
-            _learnerPipeline.afterFilteredObjects += (objects) =>
+            _learnerPipeline.AfterFilteredObjects += (objects) =>
             {
                 var config = new TrackingConfig();
                 config.gameObjects = objects.Select(o => o.name).ToArray();
                 
                 _socket.Emit("clients:tracking", JObject.FromObject(config));
             };
-
-            if (trackingSystem)
-            {
-                trackingSystem.OnSetup += config => _socket.Emit("clients:tracking", JObject.FromObject(config));
-                trackingSystem.OnStartedTracking += (_, _) =>
-                {
-                    _wasTracking = true;
-                    SendMeta("tracking:start");
-                };
-                trackingSystem.OnStoppedTracking += (_, _) =>
-                {
-                    _wasTracking = false;
-                    SendMeta("tracking:stop");
-                };
-            }
-            else
-            {
-                DebugLog.Warning("No MainTrackingSystem is set.");
-            }
             
-            trackingSystem.MakeDirty();
+            // trackingSystem.MakeDirty();
         }
         
         private void InitSocket()
@@ -156,12 +145,12 @@ namespace OmiLAXR.Modules.ReCoPa
 
             _socket.OnUnityThread("clients:quit", _ => Quit());
 
-            _socket.On("clients:all", _ => trackingSystem.MakeDirty());
+            // _socket.On("clients:all", _ => trackingSystem.MakeDirty());
 
             _socket.On("clients:scenario", DispatchScenarioInformation);
 
-            _socket.On("clients:calibration:start", _ => eyeTrackingSystem.StartCalibration());
-            _socket.On("clients:calibration:stop", _ => eyeTrackingSystem.StopCalibration());
+            // _socket.On("clients:calibration:start", _ => eyeTrackingSystem.StartCalibration());
+            // _socket.On("clients:calibration:stop", _ => eyeTrackingSystem.StopCalibration());
 
             _socket.On("clients:tracking", DispatchTrackingInformation);
             _socket.On("clients:tracking:start", DispatchStartTracking);
@@ -191,11 +180,11 @@ namespace OmiLAXR.Modules.ReCoPa
 
         private void BeginScenarioUpdate()
         {
-            trackingSystem.MakeDirty();
-            UnityMainThreadDispatcher.Instance().EnqueueAsync(() =>
-            {
-                _scenarioUpdateCoroutine = StartCoroutine(UpdateScenario());
-            });
+            // trackingSystem.MakeDirty();
+            // UnityMainThreadDispatcher.Instance().EnqueueAsync(() =>
+            // {
+            //     _scenarioUpdateCoroutine = StartCoroutine(UpdateScenario());
+            // });
         }
 
         private void OnDisconnected()
@@ -237,25 +226,25 @@ namespace OmiLAXR.Modules.ReCoPa
         {
             if (_socket == null)
                 return;
-
+        
             UnityMainThreadDispatcher.Instance().EnqueueAsync(() =>
             {
-                _socket.EmitAsync("clients:meta", trackingSystem.GetMeta(metaContext));
+                // _socket.EmitAsync("clients:meta", trackingSystem.GetMeta(metaContext));
             });
         }
-
-        private IEnumerator UpdateScenario()
-        {
-            while (true)
-            {
-                if (_socket.Connected && trackingSystem.IsDirty())
-                {
-                    SendScenario();
-                }
-
-                yield return new WaitForSeconds(5);
-            }
-        }
+        //
+        // private IEnumerator UpdateScenario()
+        // {
+        //     while (true)
+        //     {
+        //         if (_socket.Connected && trackingSystem.IsDirty())
+        //         {
+        //             SendScenario();
+        //         }
+        //
+        //         yield return new WaitForSeconds(5);
+        //     }
+        // }
 
         /// <summary>
         /// Sends all gameObjects and actions to socket server.
@@ -265,16 +254,16 @@ namespace OmiLAXR.Modules.ReCoPa
             if (_socket == null)
                 return;
             
-            var scenario = trackingSystem.GetScenario(reload);
-            var tracking = trackingSystem.GetTrackingConfig(scenario);
-
-            // transfer resulted JSONObject to socket server
-            _socket.EmitAsync("clients:scenario", scenario);
-            _socket.EmitAsync("clients:tracking", tracking);
-
-            DebugLog.Print("Sent scenario information.");
-
-            trackingSystem.TidyUp();
+            // var scenario = trackingSystem.GetScenario(reload);
+            // var tracking = trackingSystem.GetTrackingConfig(scenario);
+            //
+            // // transfer resulted JSONObject to socket server
+            // _socket.EmitAsync("clients:scenario", scenario);
+            // _socket.EmitAsync("clients:tracking", tracking);
+            //
+            // DebugLog.Print("Sent scenario information.");
+            //
+            // trackingSystem.TidyUp();
         }
 
         /// <summary>
@@ -286,7 +275,7 @@ namespace OmiLAXR.Modules.ReCoPa
             UnityMainThreadDispatcher.Instance().EnqueueAsync(() =>
             {
                 var config = e.GetValue<TrackingConfig>();
-                trackingSystem.StartTracking(config);
+                // trackingSystem.StartTracking(config);
             });
         }
         
@@ -302,15 +291,15 @@ namespace OmiLAXR.Modules.ReCoPa
 
         private void DispatchStopTracking(SocketIOResponse e)
         {
-            UnityMainThreadDispatcher.Instance().EnqueueAsync(() => { trackingSystem.StopTracking(); });
+            // UnityMainThreadDispatcher.Instance().EnqueueAsync(() => { trackingSystem.StopTracking(); });
         }
 
         private void DispatchTrackingInformation(SocketIOResponse e)
         {
             UnityMainThreadDispatcher.Instance().EnqueueAsync(() =>
             {
-                var tracking = trackingSystem.GetScenarioTrackingConfig();
-                _socket.EmitAsync("clients:tracking", JObject.FromObject(tracking));
+                // var tracking = trackingSystem.GetScenarioTrackingConfig();
+                // _socket.EmitAsync("clients:tracking", JObject.FromObject(tracking));
             });
         }
 
@@ -318,14 +307,13 @@ namespace OmiLAXR.Modules.ReCoPa
         {
             UnityMainThreadDispatcher.Instance().EnqueueAsync(() =>
             {
-                var scenario = trackingSystem.GetScenario();
-                _socket.EmitAsync("clients:scenario", JObject.FromObject(scenario));
+                // var scenario = trackingSystem.GetScenario();
+                // _socket.EmitAsync("clients:scenario", JObject.FromObject(scenario));
             });
         }
 
-        public override MonoBehaviour GetInstance() => Instance;
-        private static readonly DebugLog _debug = new DebugLog("ReCoPaConnector");
-        public DebugLog DebugLog => _debug;
+        private static readonly DebugLog Debug = new DebugLog("ReCoPa Connector");
+        public DebugLog DebugLog => Debug;
     }
 
 }
