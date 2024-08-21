@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using Newtonsoft.Json.Linq;
@@ -45,10 +46,13 @@ namespace OmiLAXR.Modules.ReCoPa
         private bool _isTrackingPaused;
 
         private TrackingScenario? _currentScenario;
+        private TrackingConfig? _trackingConfig;
         private string[] _gameObjects;
         private string[] _trackingSystems;
 
         private string sceneName => SceneManager.GetActiveScene().name;
+
+        private bool _isDirty = false;
 
         public TrackingMeta GetMeta(string metaContext) => new TrackingMeta()
         {
@@ -123,9 +127,9 @@ namespace OmiLAXR.Modules.ReCoPa
                 Array.Sort(_trackingSystems);
             }; 
             
-            _learnerPipeline.AfterFilteredObjects += (objects) =>
+            _learnerPipeline.AfterStarted += (p) =>
             {
-                _gameObjects = objects.Select(o => o.name).ToArray();
+                _gameObjects = p.trackingObjects.Select(o => o.name).ToArray();
                 Array.Sort(_gameObjects);
                 
                 var config = new TrackingConfig()
@@ -181,7 +185,7 @@ namespace OmiLAXR.Modules.ReCoPa
 
             _socket.OnUnityThread("clients:quit", _ => Quit());
 
-            // _socket.On("clients:all", _ => trackingSystem.MakeDirty());
+            _socket.On("clients:all", _ => _isDirty = true);
 
             _socket.On("clients:scenario", DispatchScenarioInformation);
 
@@ -216,11 +220,11 @@ namespace OmiLAXR.Modules.ReCoPa
 
         private void BeginScenarioUpdate()
         {
-            // trackingSystem.MakeDirty();
-            // UnityMainThreadDispatcher.Instance().EnqueueAsync(() =>
-            // {
-            //     _scenarioUpdateCoroutine = StartCoroutine(UpdateScenario());
-            // });
+            _isDirty = true;
+            UnityMainThreadDispatcher.Instance().EnqueueAsync(() =>
+            {
+                _scenarioUpdateCoroutine = StartCoroutine(UpdateScenario());
+            });
         }
 
         private void OnDisconnected()
@@ -268,19 +272,19 @@ namespace OmiLAXR.Modules.ReCoPa
                 _socket.EmitAsync("clients:meta", GetMeta(metaContext));
             });
         }
-        //
-        // private IEnumerator UpdateScenario()
-        // {
-        //     while (true)
-        //     {
-        //         if (_socket.Connected && trackingSystem.IsDirty())
-        //         {
-        //             SendScenario();
-        //         }
-        //
-        //         yield return new WaitForSeconds(5);
-        //     }
-        // }
+        
+        private IEnumerator UpdateScenario()
+        {
+            while (true)
+            {
+                if (_socket.Connected && _isDirty)
+                {
+                    SendScenario();
+                }
+        
+                yield return new WaitForSeconds(5);
+            }
+        }
 
         /// <summary>
         /// Sends all gameObjects and actions to socket server.
@@ -290,17 +294,50 @@ namespace OmiLAXR.Modules.ReCoPa
             if (_socket == null)
                 return;
             
-            // var scenario = trackingSystem.GetScenario(reload);
-            // var tracking = trackingSystem.GetTrackingConfig(scenario);
-            //
-            // // transfer resulted JSONObject to socket server
-            // _socket.EmitAsync("clients:scenario", scenario);
-            // _socket.EmitAsync("clients:tracking", tracking);
-            //
-            // DebugLog.Print("Sent scenario information.");
-            //
-            // trackingSystem.TidyUp();
+            var scenario = GetScenario(reload);
+            var tracking = GetTrackingConfig(scenario);
+            
+            // transfer resulted JSONObject to socket server
+            _socket.EmitAsync("clients:scenario", scenario);
+            _socket.EmitAsync("clients:tracking", tracking);
+            
+            DebugLog.Print("Sent scenario information.");
+            
+            _isDirty = false;
         }
+        public TrackingConfig GetScenarioTrackingConfig() => GetTrackingConfig(GetScenario());
+        public TrackingConfig GetTrackingConfig(TrackingScenario scenario)
+        {
+            if (_trackingConfig.HasValue) 
+                return _trackingConfig.Value;
+
+            var lrs = _learningRecordStore;
+            var actor = _learnerPipeline.actor;
+            
+            var uri = lrs.statementIdUri;
+            var endpoint = lrs.credentials.endpoint;
+            var key = lrs.credentials.username;
+            var secret = lrs.credentials.password;
+            var actorName = actor.actorName;
+            var actorEmail = actor.actorEmail;
+            
+            if(!actorEmail.StartsWith("mailto:"))
+                actorEmail = "mailto:" + actorEmail;
+            
+            _trackingConfig = new TrackingConfig()
+            {
+                auth = new TrackingConfig.ClientAuth(key, secret),
+                lrs = endpoint,
+                uri = uri,
+                identity = new TrackingConfig.TrackingIdentity(actorName, actorEmail),
+                gameObjects = scenario.gameObjects,
+                actions = scenario.actions,
+                gestures = scenario.gestures
+            };
+
+            return _trackingConfig.Value;
+        }
+
 
         /// <summary>
         /// Serialize e.data to TrackingInfo, call Setup and Start Tracking.
@@ -311,7 +348,8 @@ namespace OmiLAXR.Modules.ReCoPa
             UnityMainThreadDispatcher.Instance().EnqueueAsync(() =>
             {
                 var config = e.GetValue<TrackingConfig>();
-                // trackingSystem.StartTracking(config);
+                // todo: setup filters
+                _learnerPipeline.gameObject.SetActive(true);
             });
         }
         
@@ -327,15 +365,15 @@ namespace OmiLAXR.Modules.ReCoPa
 
         private void DispatchStopTracking(SocketIOResponse e)
         {
-            // UnityMainThreadDispatcher.Instance().EnqueueAsync(() => { trackingSystem.StopTracking(); });
+            UnityMainThreadDispatcher.Instance().EnqueueAsync(() => { _learnerPipeline.gameObject.SetActive(false); });
         }
 
         private void DispatchTrackingInformation(SocketIOResponse e)
         {
             UnityMainThreadDispatcher.Instance().EnqueueAsync(() =>
             {
-                // var tracking = trackingSystem.GetScenarioTrackingConfig();
-                // _socket.EmitAsync("clients:tracking", JObject.FromObject(tracking));
+                var tracking = GetScenarioTrackingConfig();
+                _socket.EmitAsync("clients:tracking", JObject.FromObject(tracking));
             });
         }
 
