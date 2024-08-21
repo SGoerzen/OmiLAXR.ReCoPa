@@ -11,7 +11,7 @@ namespace OmiLAXR.Modules.ReCoPa
         private static void AddReCoPaConnector()
         {
             var selectedGameObject = Selection.activeGameObject;
-            var prefab = Resources.Load<GameObject>("Prefabs/ReCoPa Connector");
+            var prefab = Resources.Load<GameObject>("Prefabs/OmiLAXR.Modules.ReCoPa");
             if (selectedGameObject)
                 PrefabUtility.InstantiatePrefab(prefab, selectedGameObject.transform);
             else

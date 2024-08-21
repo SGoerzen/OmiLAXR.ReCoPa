@@ -21,8 +21,8 @@ namespace OmiLAXR.Modules.ReCoPa
     /// <summary>
     /// This adapter is needed to connect OmiLAXR Tracking System with the Researcher Companion Panel.
     /// </summary>
-    [RequireComponent(typeof(SocketIOUnity), typeof(UnityMainThreadDispatcher))]
-    [AddComponentMenu("OmiLAXR / Modules / ReCoPa")]
+    [RequireComponent(typeof(UnityMainThreadDispatcher))]
+    [AddComponentMenu("OmiLAXR / Modules / ReCoPa / ReCoPa Module")]
     public class ReCoPa : Module, IDebugSender
     {
         public string connectionUrl = "http://127.0.0.1:4567";
@@ -40,7 +40,7 @@ namespace OmiLAXR.Modules.ReCoPa
         public UnityEvent onConnected = new UnityEvent();
         public UnityEvent onDisconnected = new UnityEvent();
         public UnityEvent onReconnected = new UnityEvent();
-
+        
         private void Start()
         {
             _learnerPipeline = FindObjectOfType<LearnerPipeline>();
