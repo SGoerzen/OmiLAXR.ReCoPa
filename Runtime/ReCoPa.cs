@@ -40,15 +40,35 @@ namespace OmiLAXR.Modules.ReCoPa
         public UnityEvent onConnected = new UnityEvent();
         public UnityEvent onDisconnected = new UnityEvent();
         public UnityEvent onReconnected = new UnityEvent();
+
+
+        private bool _isTrackingPaused;
+
+        private TrackingScenario? _currentScenario;
+        private string[] _gameObjects;
+        private string[] _trackingSystems;
+
+        private string sceneName => SceneManager.GetActiveScene().name;
+
+        public TrackingMeta GetMeta(string metaContext) => new TrackingMeta()
+        {
+            ["isTracking"] = _learnerPipeline.gameObject.activeSelf,
+            ["isTrackingPaused"] = _isTrackingPaused,
+            ["computerName"] = Environment.MachineName,
+            ["actorName"] = _learnerPipeline.actor.actorName,
+            ["actorEmail"] = _learnerPipeline.actor.actorEmail,
+            ["metaContext"] = metaContext,
+            // ["systems"] = GetSubSystemsMeta(metaContext)
+        };
         
-        private void Start()
+        private void Awake()
         {
             _learnerPipeline = FindObjectOfType<LearnerPipeline>();
             _learningRecordStore = FindObjectOfType<LearningRecordStore>();
 
             Init();
             InitSocket();
-
+            
             SceneManager.sceneLoaded += ChangedScene;
         }
 
@@ -75,33 +95,49 @@ namespace OmiLAXR.Modules.ReCoPa
 
             // Disable learner tracking
 
-            if (_learnerPipeline)
+            if (!_learnerPipeline)
             {
                 DebugLog.Warning("Cannot find a <LearnerPipeline>.");
                 return;
             }
             
-            _learnerPipeline.gameObject.SetActive(false);
-
-            _learnerPipeline.onStartedPipeline += () =>
+            _learnerPipeline.OnStartedPipeline += () =>
             {
                 _wasTracking = true;
                 SendMeta("tracking:start");
             };
-            _learnerPipeline.onStoppedPipeline += () =>
+            _learnerPipeline.OnStoppedPipeline += () =>
             {
                 _wasTracking = false;
                 SendMeta("tracking:stop");
             };
+
+            _learnerPipeline.AfterInit += pipeline =>
+            {
+                _trackingSystems = _learnerPipeline.TrackingBehaviours
+                    .Select(tb => tb.name
+                        .Replace("Tracking", "")
+                        .Replace("Behaviour", "")
+                        .Trim()
+                    ).ToArray();
+                Array.Sort(_trackingSystems);
+            }; 
+            
             _learnerPipeline.AfterFilteredObjects += (objects) =>
             {
-                var config = new TrackingConfig();
-                config.gameObjects = objects.Select(o => o.name).ToArray();
+                _gameObjects = objects.Select(o => o.name).ToArray();
+                Array.Sort(_gameObjects);
+                
+                var config = new TrackingConfig()
+                {
+                    gameObjects = _gameObjects,
+                    gestures = _trackingSystems
+                };
                 
                 _socket.Emit("clients:tracking", JObject.FromObject(config));
+                _learnerPipeline.gameObject.SetActive(false);
+
             };
-            
-            // trackingSystem.MakeDirty();
         }
         
         private void InitSocket()
@@ -164,7 +200,7 @@ namespace OmiLAXR.Modules.ReCoPa
         private void OnConnected()
         {
             // Send meta information first time
-            DebugLog.Print("[ReCoPa Connector] Connected to ReCoPa.");
+            DebugLog.Print("Connected to ReCoPa.");
             onConnected.Invoke();
             SendMeta("connected");
             BeginScenarioUpdate();
@@ -172,7 +208,7 @@ namespace OmiLAXR.Modules.ReCoPa
 
         private void OnReconnected()
         {
-            DebugLog.Print("[ReCoPa Connector] Reconnected to ReCoPa.");
+            DebugLog.Print("Reconnected to ReCoPa.");
             onReconnected.Invoke();
             SendMeta("reconnected");
             BeginScenarioUpdate();
@@ -189,7 +225,7 @@ namespace OmiLAXR.Modules.ReCoPa
 
         private void OnDisconnected()
         {
-            DebugLog.Print("[ReCoPa Connector] Disconnected from ReCoPa.");
+            DebugLog.Print("Disconnected from ReCoPa.");
             onDisconnected.Invoke();
             UnityMainThreadDispatcher.Instance().EnqueueAsync(() =>
             {
@@ -229,7 +265,7 @@ namespace OmiLAXR.Modules.ReCoPa
         
             UnityMainThreadDispatcher.Instance().EnqueueAsync(() =>
             {
-                // _socket.EmitAsync("clients:meta", trackingSystem.GetMeta(metaContext));
+                _socket.EmitAsync("clients:meta", GetMeta(metaContext));
             });
         }
         //
@@ -307,12 +343,34 @@ namespace OmiLAXR.Modules.ReCoPa
         {
             UnityMainThreadDispatcher.Instance().EnqueueAsync(() =>
             {
-                // var scenario = trackingSystem.GetScenario();
-                // _socket.EmitAsync("clients:scenario", JObject.FromObject(scenario));
+                var scenario = GetScenario();
+                _socket.EmitAsync("clients:scenario", JObject.FromObject(scenario));
             });
         }
+        
+        public TrackingScenario GetScenario(bool reload = false)
+        {
+            if (!reload && _currentScenario.HasValue)
+                return _currentScenario.Value;
+            
+            // Add game objects
+            Array.Sort(_gameObjects);
 
-        private static readonly DebugLog Debug = new DebugLog("ReCoPa Connector");
+            // Add scenario actions
+            var actions = Array.Empty<string>();
+            Array.Sort(actions);
+            
+            _currentScenario = new TrackingScenario()
+            {
+                name = sceneName,
+                gameObjects = _gameObjects,
+                actions = actions,
+                gestures = _trackingSystems
+            };
+            return _currentScenario.Value;
+        }
+
+        private static readonly DebugLog Debug = new DebugLog("ReCoPa Module");
         public DebugLog DebugLog => Debug;
     }
 
