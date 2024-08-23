@@ -1,12 +1,13 @@
 {
-    "name": "OmiLAXR.Modules.ReCoPa",
-    "rootNamespace": "OmiLAXR.Modules.ReCoPa",
+    "name": "OmiLAXR.ReCoPa",
+    "rootNamespace": "OmiLAXR.ReCoPa",
     "references": [
         "GUID:92238810d69db43818b28b85251b4b3c",
         "GUID:5b80f9e8c84ce594bbd1284cff4292dd",
         "GUID:8f840851d92754fd89291b0b86a5a78b",
         "GUID:ac740251aebda49e8bf622aa1652e9e3",
-        "GUID:870f05f79e1a5df4f9526b627661064e"
+        "GUID:870f05f79e1a5df4f9526b627661064e",
+        "GUID:71ad480b66ce6a244838fbe2a6b004e0"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],

@@ -3,7 +3,7 @@
 using UnityEditor;
 using UnityEngine;
 
-namespace OmiLAXR.Modules.ReCoPa
+namespace OmiLAXR.ReCoPa
 {
     internal static class CustomMenu
     {
@@ -11,7 +11,7 @@ namespace OmiLAXR.Modules.ReCoPa
         private static void AddReCoPaConnector()
         {
             var selectedGameObject = Selection.activeGameObject;
-            var prefab = Resources.Load<GameObject>("Prefabs/OmiLAXR.Modules.ReCoPa");
+            var prefab = Resources.Load<GameObject>("Prefabs/OmiLAXR.ReCoPa");
             if (selectedGameObject)
                 PrefabUtility.InstantiatePrefab(prefab, selectedGameObject.transform);
             else

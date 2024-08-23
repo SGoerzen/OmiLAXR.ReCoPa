@@ -1,4 +1,4 @@
-namespace OmiLAXR.Modules.ReCoPa
+namespace OmiLAXR.ReCoPa
 {
     public struct TrackingScenario
     {

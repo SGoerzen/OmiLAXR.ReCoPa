@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
 
-namespace OmiLAXR.Modules.ReCoPa
+namespace OmiLAXR.ReCoPa
 {
     [Serializable]
     public class TrackingMeta : Dictionary<string, object>

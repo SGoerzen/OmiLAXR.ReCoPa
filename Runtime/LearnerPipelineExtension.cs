@@ -1,9 +1,9 @@
 using System.Linq;
-using OmiLAXR.Modules.ReCoPa.TrackingBehaviours;
+using OmiLAXR.ReCoPa.TrackingBehaviours;
 using OmiLAXR.Pipelines;
 using UnityEngine;
 
-namespace OmiLAXR.Modules.ReCoPa
+namespace OmiLAXR.ReCoPa
 {
     [AddComponentMenu("OmiLAXR / Modules / ReCoPa / Learner Pipeline Extension")]
     public class LearnerPipelineExtension : PipelineExtension<LearnerPipeline>

@@ -1,4 +1,4 @@
-namespace OmiLAXR.Modules.ReCoPa.Actors
+namespace OmiLAXR.ReCoPa.Actors
 {
     public class Researcher : Actor
     {

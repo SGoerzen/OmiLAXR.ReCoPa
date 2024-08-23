@@ -17,7 +17,7 @@ using UnityEngine;
 using UnityEngine.Events;
 using UnityEngine.SceneManagement;
 
-namespace OmiLAXR.Modules.ReCoPa
+namespace OmiLAXR.ReCoPa
 {
     /// <summary>
     /// This adapter is needed to connect OmiLAXR Tracking System with the Researcher Companion Panel.
@@ -62,6 +62,7 @@ namespace OmiLAXR.Modules.ReCoPa
             ["actorName"] = _learnerPipeline.actor.actorName,
             ["actorEmail"] = _learnerPipeline.actor.actorEmail,
             ["metaContext"] = metaContext,
+            ["version"] = "2"
             // ["systems"] = GetSubSystemsMeta(metaContext)
         };
         
@@ -120,28 +121,43 @@ namespace OmiLAXR.Modules.ReCoPa
             {
                 _trackingSystems = _learnerPipeline.TrackingBehaviours
                     .Select(tb => tb.name
-                        .Replace("Tracking", "")
-                        .Replace("Behaviour", "")
-                        .Trim()
                     ).ToArray();
                 Array.Sort(_trackingSystems);
             }; 
             
-            _learnerPipeline.AfterStarted += (p) =>
-            {
-                _gameObjects = p.trackingObjects.Select(o => o.name).ToArray();
-                Array.Sort(_gameObjects);
-                
-                var config = new TrackingConfig()
-                {
-                    gameObjects = _gameObjects,
-                    gestures = _trackingSystems
-                };
-                
-                _socket.Emit("clients:tracking", JObject.FromObject(config));
-                _learnerPipeline.gameObject.SetActive(false);
+            _learnerPipeline.AfterStarted += HookIntoLearner;
+        }
 
+        private void HookIntoLearner(Pipeline p)
+        {
+            _learnerPipeline.AfterStarted -= HookIntoLearner;
+            
+            _gameObjects = p.trackingObjects.Select(o => o.name).ToArray();
+            Array.Sort(_gameObjects);
+                
+            var config = new TrackingConfig()
+            {
+                gameObjects = _gameObjects,
+                gestures = _trackingSystems
             };
+                
+            _socket.Emit("clients:tracking", JObject.FromObject(config));
+            
+            StopTracking();
+        }
+
+        private void StartTracking()
+        {
+            _learningRecordStore.StartSending();
+            _learnerPipeline.gameObject.SetActive(true);
+        }
+        private void PauseTracking() {}
+        private void ResumeTracking() {}
+
+        private void StopTracking()
+        {
+            _learningRecordStore.StopSending();
+            _learnerPipeline.gameObject.SetActive(false);
         }
         
         private void InitSocket()
@@ -348,24 +364,31 @@ namespace OmiLAXR.Modules.ReCoPa
             UnityMainThreadDispatcher.Instance().EnqueueAsync(() =>
             {
                 var config = e.GetValue<TrackingConfig>();
+                var lrs = _learningRecordStore;
+
+                lrs.credentials.endpoint = config.lrs;
+                lrs.credentials.username = config.auth.key;
+                lrs.credentials.password = config.auth.secret;
+                lrs.statementIdUri = config.uri;
+                
                 // todo: setup filters
-                _learnerPipeline.gameObject.SetActive(true);
+                StartTracking();
             });
         }
         
         private void DispatchPauseTracking(SocketIOResponse e)
         {
-            throw new NotImplementedException("Todo");
+            UnityMainThreadDispatcher.Instance().EnqueueAsync(PauseTracking);
         }
         
         private void DispatchResumeTracking(SocketIOResponse e)
         {
-            throw new NotImplementedException("Todo");
+            UnityMainThreadDispatcher.Instance().EnqueueAsync(ResumeTracking);
         }
 
         private void DispatchStopTracking(SocketIOResponse e)
         {
-            UnityMainThreadDispatcher.Instance().EnqueueAsync(() => { _learnerPipeline.gameObject.SetActive(false); });
+            UnityMainThreadDispatcher.Instance().EnqueueAsync(StopTracking);
         }
 
         private void DispatchTrackingInformation(SocketIOResponse e)
