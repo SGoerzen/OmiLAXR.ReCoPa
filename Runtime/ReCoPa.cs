@@ -29,6 +29,7 @@ namespace OmiLAXR.ReCoPa
     /// </summary>
     [RequireComponent(typeof(UnityMainThreadDispatcher))]
     [AddComponentMenu("OmiLAXR / Modules / ReCoPa / ReCoPa Module")]
+    [DefaultExecutionOrder(-10)]
     public class ReCoPa : Module, IDebugSender
     {
         public string connectionUrl = "http://127.0.0.1:4567";
@@ -118,18 +119,6 @@ namespace OmiLAXR.ReCoPa
                 DebugLog.Warning("Cannot find a <LearnerPipeline>.");
                 return;
             }
-
-            _learnerPipeline.AfterStarted += (p) =>
-            {
-                _wasTracking = true;
-                SendMeta("tracking:start");
-            };
-            
-            _learnerPipeline.BeforeStoppedPipeline += (p) =>
-            {
-                _wasTracking = false;
-                SendMeta("tracking:stop");
-            };
             
             _learnerPipeline.AfterStarted += HookIntoLearner;
         }
@@ -157,12 +146,24 @@ namespace OmiLAXR.ReCoPa
             _socket.Emit("clients:tracking", JObject.FromObject(config));
             
             StopTracking();
+            
+            _learnerPipeline.AfterStarted += (p) =>
+            {
+                _wasTracking = true;
+                SendMeta("tracking:start");
+            };
+            
+            _learnerPipeline.BeforeStoppedPipeline += (p) =>
+            {
+                _wasTracking = false;
+                SendMeta("tracking:stop");
+            };
         }
 
         private void StartTracking()
         {
             _learningRecordStore.StartSending();
-            _learnerPipeline.gameObject.SetActive(true);
+            _learnerPipeline.StartPipeline();
         }
 
         private void PauseTracking()
@@ -178,7 +179,7 @@ namespace OmiLAXR.ReCoPa
         private void StopTracking()
         {
             _learningRecordStore.StopSending();
-            _learnerPipeline.gameObject.SetActive(false);
+            _learnerPipeline.StopPipeline();
         }
         
         private void InitSocket()

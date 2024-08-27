@@ -7,9 +7,12 @@ namespace OmiLAXR.ReCoPa
     [AddComponentMenu("OmiLAXR / Modules / ReCoPa / Learner Pipeline Extension")]
     public class LearnerPipelineExtension : PipelineExtension<LearnerPipeline>
     {
-        protected override void Extend(LearnerPipeline pipeline)
+        protected override PipelineComponent[] OnExtend()
         {
-            pipeline.Add(gameObject.AddComponent<ReCoPaFilter>());
+            return new PipelineComponent[]
+            {
+                gameObject.AddComponent<ReCoPaFilter>()
+            };
         }
     }
 }
