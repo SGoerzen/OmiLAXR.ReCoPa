@@ -11,5 +11,10 @@ namespace OmiLAXR.ReCoPa.TrackingBehaviours
         {
             
         }
+
+        protected override void Dispose(Object[] objects)
+        {
+            
+        }
     }
 }

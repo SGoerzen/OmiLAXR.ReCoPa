@@ -2,8 +2,11 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
+using System.Reflection;
 using Newtonsoft.Json.Linq;
+using OmiLAXR.Modules;
 using OmiLAXR.Pipelines;
+using OmiLAXR.ReCoPa.Filters;
 using OmiLAXR.xAPI.Endpoints;
 using PimDeWitte.UnityMainThreadDispatcher;
 
@@ -11,7 +14,9 @@ using SocketIOClient;
 using SocketIOClient.Newtonsoft.Json;
 using SocketIOClient.Transport;
 
+#if UNITY_EDITOR
 using UnityEditor;
+#endif
 
 using UnityEngine;
 using UnityEngine.Events;
@@ -41,36 +46,46 @@ namespace OmiLAXR.ReCoPa
         public UnityEvent onConnected = new UnityEvent();
         public UnityEvent onDisconnected = new UnityEvent();
         public UnityEvent onReconnected = new UnityEvent();
-
-
+        
         private bool _isTrackingPaused;
 
         private TrackingScenario? _currentScenario;
         private TrackingConfig? _trackingConfig;
         private string[] _gameObjects;
-        private string[] _trackingSystems;
+        private string[] _actions;
+        private string[] _gestures;
 
+        private IEyeTrackingModule _eyeTrackingModule;
+        private ReCoPaFilter _filter;
+        
         private string sceneName => SceneManager.GetActiveScene().name;
 
         private bool _isDirty = false;
+
+        public bool doReconnection = true;
+        public int reconnectionDelay = 30_000;
+        public int reconnectionMaxDelay = 60_000;
+        public int reconnectionAttempts = 10;
 
         public TrackingMeta GetMeta(string metaContext) => new TrackingMeta()
         {
             ["isTracking"] = _learnerPipeline.gameObject.activeSelf,
             ["isTrackingPaused"] = _isTrackingPaused,
+            ["isCalibrated"] = _eyeTrackingModule?.IsCalibrated(),
             ["computerName"] = Environment.MachineName,
             ["actorName"] = _learnerPipeline.actor.actorName,
             ["actorEmail"] = _learnerPipeline.actor.actorEmail,
             ["metaContext"] = metaContext,
-            ["version"] = "2"
-            // ["systems"] = GetSubSystemsMeta(metaContext)
         };
         
         private void Awake()
         {
             _learnerPipeline = FindObjectOfType<LearnerPipeline>();
             _learningRecordStore = FindObjectOfType<LearningRecordStore>();
+            _filter = FindObjectOfType<ReCoPaFilter>();
 
+            _eyeTrackingModule = _learnerPipeline.GetComponentInChildren<IEyeTrackingModule>();
+            
             Init();
             InitSocket();
             
@@ -88,42 +103,33 @@ namespace OmiLAXR.ReCoPa
 
         private void Init()
         {
-            // if (eyeTrackingSystem)
-            // {
-            //     eyeTrackingSystem.OnCalibrationStarted += _ => SendMeta("calibration:start");
-            //     eyeTrackingSystem.OnCalibrationStopped += _ => SendMeta("calibration:stop");
-            // }
-            // else
-            // {
-            //     DebugLog.Warning("No EyeTrackingSystem is set.");
-            // }
-
-            // Disable learner tracking
-
+            if (_eyeTrackingModule != null)
+            {
+                _eyeTrackingModule.OnCalibrationStarted += () => SendMeta("calibration:start");
+                _eyeTrackingModule.OnCalibrationStopped += () => SendMeta("calibration:stop");
+            }
+            else
+            {
+                DebugLog.Warning("Cannot find any eye tracking module.");
+            }
+            
             if (!_learnerPipeline)
             {
                 DebugLog.Warning("Cannot find a <LearnerPipeline>.");
                 return;
             }
-            
-            _learnerPipeline.OnStartedPipeline += () =>
+
+            _learnerPipeline.AfterStarted += (p) =>
             {
                 _wasTracking = true;
                 SendMeta("tracking:start");
             };
-            _learnerPipeline.OnStoppedPipeline += () =>
+            
+            _learnerPipeline.BeforeStoppedPipeline += (p) =>
             {
                 _wasTracking = false;
                 SendMeta("tracking:stop");
             };
-
-            _learnerPipeline.AfterInit += pipeline =>
-            {
-                _trackingSystems = _learnerPipeline.TrackingBehaviours
-                    .Select(tb => tb.name
-                    ).ToArray();
-                Array.Sort(_trackingSystems);
-            }; 
             
             _learnerPipeline.AfterStarted += HookIntoLearner;
         }
@@ -132,13 +138,20 @@ namespace OmiLAXR.ReCoPa
         {
             _learnerPipeline.AfterStarted -= HookIntoLearner;
             
-            _gameObjects = p.trackingObjects.Select(o => o.name).ToArray();
+            _gameObjects = p.trackingObjects.Select(o => o.GetTrackingName()).ToArray();
             Array.Sort(_gameObjects);
+            
+            _actions = p.Actions.Keys.ToArray();
+            Array.Sort(_actions);
+                
+            _gestures = p.Gestures.Keys.ToArray();
+            Array.Sort(_gestures);
                 
             var config = new TrackingConfig()
             {
                 gameObjects = _gameObjects,
-                gestures = _trackingSystems
+                gestures = _gestures,
+                actions = _actions
             };
                 
             _socket.Emit("clients:tracking", JObject.FromObject(config));
@@ -151,8 +164,16 @@ namespace OmiLAXR.ReCoPa
             _learningRecordStore.StartSending();
             _learnerPipeline.gameObject.SetActive(true);
         }
-        private void PauseTracking() {}
-        private void ResumeTracking() {}
+
+        private void PauseTracking()
+        {
+            _isTrackingPaused = true;
+        }
+
+        private void ResumeTracking()
+        {
+            _isTrackingPaused = false;
+        }
 
         private void StopTracking()
         {
@@ -169,13 +190,14 @@ namespace OmiLAXR.ReCoPa
             _socket = new SocketIOUnity(connectionUrl, new SocketIOOptions()
             {
                 Transport = TransportProtocol.WebSocket,
-                Reconnection = true,
-                ReconnectionDelay = 5000,
-                ReconnectionDelayMax = 10000,
-                ReconnectionAttempts = 1000,
+                Reconnection = doReconnection,
+                ReconnectionDelay = reconnectionDelay,
+                ReconnectionDelayMax = reconnectionMaxDelay,
+                ReconnectionAttempts = reconnectionAttempts,
                 ExtraHeaders = new Dictionary<string, string>()
                 {
-                    ["clientType"] = "participant"
+                    ["clientType"] = "participant",
+                    ["version"] = "2.0.0"
                 }
             }, SocketIOUnity.UnityThreadScope.FixedUpdate);
             _socket.JsonSerializer = new NewtonsoftJsonSerializer();
@@ -205,8 +227,8 @@ namespace OmiLAXR.ReCoPa
 
             _socket.On("clients:scenario", DispatchScenarioInformation);
 
-            // _socket.On("clients:calibration:start", _ => eyeTrackingSystem.StartCalibration());
-            // _socket.On("clients:calibration:stop", _ => eyeTrackingSystem.StopCalibration());
+             _socket.On("clients:calibration:start", _ => _eyeTrackingModule.StartCalibration());
+             _socket.On("clients:calibration:stop", _ => _eyeTrackingModule.StopCalibration());
 
             _socket.On("clients:tracking", DispatchTrackingInformation);
             _socket.On("clients:tracking:start", DispatchStartTracking);
@@ -366,12 +388,21 @@ namespace OmiLAXR.ReCoPa
                 var config = e.GetValue<TrackingConfig>();
                 var lrs = _learningRecordStore;
 
+                // apply lrs configs
                 lrs.credentials.endpoint = config.lrs;
                 lrs.credentials.username = config.auth.key;
                 lrs.credentials.password = config.auth.secret;
                 lrs.statementIdUri = config.uri;
+
+                // apply game objects filter
+                _filter.gameObjects = config.gameObjects;
                 
-                // todo: setup filters
+                // apply actions filter
+                var actions = _learnerPipeline.Actions.Where(pair => !config.actions.Contains(pair.Key));
+                
+                // apply gestures filter
+                var gestures = _learnerPipeline.Gestures.Where(pair => !config.gestures.Contains(pair.Key));
+                
                 StartTracking();
             });
         }
@@ -414,19 +445,12 @@ namespace OmiLAXR.ReCoPa
             if (!reload && _currentScenario.HasValue)
                 return _currentScenario.Value;
             
-            // Add game objects
-            Array.Sort(_gameObjects);
-
-            // Add scenario actions
-            var actions = Array.Empty<string>();
-            Array.Sort(actions);
-            
             _currentScenario = new TrackingScenario()
             {
                 name = sceneName,
                 gameObjects = _gameObjects,
-                actions = actions,
-                gestures = _trackingSystems
+                actions = _actions,
+                gestures = _gestures
             };
             return _currentScenario.Value;
         }

@@ -13,7 +13,7 @@ GameObject:
   - component: {fileID: 185920571573498182}
   - component: {fileID: 8542182374596165037}
   m_Layer: 0
-  m_Name: OmiLAXR.Modules.ReCoPa
+  m_Name: OmiLAXR.ReCoPa
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0

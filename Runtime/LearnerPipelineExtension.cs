@@ -1,6 +1,5 @@
-using System.Linq;
-using OmiLAXR.ReCoPa.TrackingBehaviours;
 using OmiLAXR.Pipelines;
+using OmiLAXR.ReCoPa.Filters;
 using UnityEngine;
 
 namespace OmiLAXR.ReCoPa
@@ -10,7 +9,7 @@ namespace OmiLAXR.ReCoPa
     {
         protected override void Extend(LearnerPipeline pipeline)
         {
-            Add(gameObject.AddComponent<ReCoPaTrackingBehaviour>());
+            pipeline.Add(gameObject.AddComponent<ReCoPaFilter>());
         }
     }
 }
