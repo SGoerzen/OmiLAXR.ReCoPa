@@ -28,8 +28,8 @@ namespace OmiLAXR.ReCoPa
     /// This adapter is needed to connect OmiLAXR Tracking System with the Researcher Companion Panel.
     /// </summary>
     [RequireComponent(typeof(UnityMainThreadDispatcher))]
-    [AddComponentMenu("OmiLAXR / Modules / ReCoPa / ReCoPa Module")]
-    [DefaultExecutionOrder(-10)]
+    [AddComponentMenu("OmiLAXR / Modules / ReCoPa")]
+    [DefaultExecutionOrder(-1)]
     public class ReCoPa : Module, IDebugSender
     {
         public string connectionUrl = "http://127.0.0.1:4567";
@@ -38,6 +38,7 @@ namespace OmiLAXR.ReCoPa
         private SocketIOUnity _socket;
 
         private LearnerPipeline _learnerPipeline;
+        private LearnerPipelineExtension _learnerPipelineExt;
         private LearningRecordStore _learningRecordStore;
 
         private Coroutine _scenarioUpdateCoroutine;
@@ -70,7 +71,7 @@ namespace OmiLAXR.ReCoPa
 
         public TrackingMeta GetMeta(string metaContext) => new TrackingMeta()
         {
-            ["isTracking"] = _learnerPipeline.gameObject.activeSelf,
+            ["isTracking"] = _learnerPipeline.IsRunning,
             ["isTrackingPaused"] = _isTrackingPaused,
             ["isCalibrated"] = _eyeTrackingModule?.IsCalibrated(),
             ["computerName"] = Environment.MachineName,
@@ -83,8 +84,12 @@ namespace OmiLAXR.ReCoPa
         {
             _learnerPipeline = FindObjectOfType<LearnerPipeline>();
             _learningRecordStore = FindObjectOfType<LearningRecordStore>();
-            _filter = FindObjectOfType<ReCoPaFilter>();
 
+            _learnerPipelineExt = FindObjectOfType<LearnerPipelineExtension>();
+            _filter = _learnerPipelineExt.GetComponentInChildren<ReCoPaFilter>();
+            
+            _learnerPipeline.Add(_learnerPipelineExt);
+            
             _eyeTrackingModule = _learnerPipeline.GetComponentInChildren<IEyeTrackingModule>();
             
             Init();
@@ -125,7 +130,8 @@ namespace OmiLAXR.ReCoPa
 
         private void HookIntoLearner(Pipeline p)
         {
-            _learnerPipeline.AfterStarted -= HookIntoLearner;
+            p.AfterStarted -= HookIntoLearner;
+           
             
             _gameObjects = p.trackingObjects.Select(o => o.GetTrackingName()).ToArray();
             Array.Sort(_gameObjects);
@@ -142,24 +148,25 @@ namespace OmiLAXR.ReCoPa
                 gestures = _gestures,
                 actions = _actions
             };
-                
-            _socket.Emit("clients:tracking", JObject.FromObject(config));
             
             StopTracking();
+            _filter.enabled = true;
             
-            _learnerPipeline.AfterStarted += (p) =>
+            p.AfterStarted += (_) =>
             {
                 _wasTracking = true;
                 SendMeta("tracking:start");
             };
             
-            _learnerPipeline.BeforeStoppedPipeline += (p) =>
+            p.BeforeStoppedPipeline += (_) =>
             {
                 _wasTracking = false;
                 SendMeta("tracking:stop");
             };
+            
+            _socket.Emit("clients:tracking", JObject.FromObject(config));
         }
-
+        
         private void StartTracking()
         {
             _learningRecordStore.StartSending();
@@ -398,11 +405,15 @@ namespace OmiLAXR.ReCoPa
                 // apply game objects filter
                 _filter.gameObjects = config.gameObjects;
                 
-                // apply actions filter
-                var actions = _learnerPipeline.Actions.Where(pair => !config.actions.Contains(pair.Key));
+                // disable all actions
+                _learnerPipeline.SetDisabledActions(true);
+                // enable only selected actions
+                _learnerPipeline.SetDisabledActions(false, config.actions);
                 
-                // apply gestures filter
-                var gestures = _learnerPipeline.Gestures.Where(pair => !config.gestures.Contains(pair.Key));
+                // disable all gestures
+                _learnerPipeline.SetDisabledGestures(true);
+                // enable only selected gestures
+                _learnerPipeline.SetDisabledGestures(false, config.gestures);
                 
                 StartTracking();
             });

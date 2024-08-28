@@ -4,15 +4,8 @@ using UnityEngine;
 
 namespace OmiLAXR.ReCoPa
 {
-    [AddComponentMenu("OmiLAXR / Modules / ReCoPa / Learner Pipeline Extension")]
-    public class LearnerPipelineExtension : PipelineExtension<LearnerPipeline>
+    [AddComponentMenu("OmiLAXR / 0) Pipeline Extensions / Learner Pipeline Extension (ReCoPa)")]
+    public class LearnerPipelineExtension : PipelineExtension
     {
-        protected override PipelineComponent[] OnExtend()
-        {
-            return new PipelineComponent[]
-            {
-                gameObject.AddComponent<ReCoPaFilter>()
-            };
-        }
     }
 }
