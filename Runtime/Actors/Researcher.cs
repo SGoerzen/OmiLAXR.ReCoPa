@@ -1,6 +1,6 @@
 using UnityEngine;
 
-namespace OmiLAXR.ReCoPa.Actors
+namespace OmiLAXR.ReCoPa
 {
     [AddComponentMenu("OmiLAXR / Actors / Researcher")]
     public class Researcher : Actor
