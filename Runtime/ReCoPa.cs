@@ -8,7 +8,6 @@ using OmiLAXR.Modules;
 using OmiLAXR.Pipelines;
 using OmiLAXR.ReCoPa.Filters;
 using OmiLAXR.xAPI.Endpoints;
-using PimDeWitte.UnityMainThreadDispatcher;
 
 using SocketIOClient;
 using SocketIOClient.Newtonsoft.Json;
@@ -30,8 +29,9 @@ namespace OmiLAXR.ReCoPa
     [RequireComponent(typeof(UnityMainThreadDispatcher))]
     [AddComponentMenu("OmiLAXR / Modules / ReCoPa")]
     [DefaultExecutionOrder(-1)]
-    public class ReCoPa : Module, IDebugSender
+    public class ReCoPa : OmiLAXR.Modules.Module, IDebugSender
     {
+        private UnityMainThreadDispatcher _dispatcher;
         public string connectionUrl = "http://127.0.0.1:4567";
 
         // variables for websocket communication
@@ -82,10 +82,17 @@ namespace OmiLAXR.ReCoPa
         
         private void Awake()
         {
+#if UNITY_2021_1_OR_NEWER
+            _learnerPipeline = FindFirstObjectByType<LearnerPipeline>();
+            _learningRecordStore = FindFirstObjectByType<LearningRecordStore>();
+
+            _learnerPipelineExt = FindFirstObjectByType<LearnerPipelineExtension>();
+#else
             _learnerPipeline = FindObjectOfType<LearnerPipeline>();
             _learningRecordStore = FindObjectOfType<LearningRecordStore>();
 
             _learnerPipelineExt = FindObjectOfType<LearnerPipelineExtension>();
+#endif
             _filter = _learnerPipelineExt.GetComponentInChildren<ReCoPaFilter>();
             
             _learnerPipeline.Add(_learnerPipelineExt);
@@ -95,16 +102,7 @@ namespace OmiLAXR.ReCoPa
             Init();
             InitSocket();
             
-            SceneManager.sceneLoaded += ChangedScene;
-        }
-
-        private void ChangedScene(Scene arg0, LoadSceneMode arg1)
-        {
-            // Init();
-            // if (_wasTracking)
-            // {
-            //     //trackingSystem.StartTracking();
-            // }
+            //SceneManager.sceneLoaded += ChangedScene;
         }
 
         private void Init()
@@ -125,12 +123,12 @@ namespace OmiLAXR.ReCoPa
                 return;
             }
             
-            _learnerPipeline.AfterStarted += HookIntoLearner;
+            _learnerPipeline.AfterStartedPipeline += HookIntoLearner;
         }
 
         private void HookIntoLearner(Pipeline p)
         {
-            p.AfterStarted -= HookIntoLearner;
+            p.AfterStartedPipeline -= HookIntoLearner;
            
             
             _gameObjects = p.trackingObjects.Select(o => o.GetTrackingName()).ToArray();
@@ -152,7 +150,7 @@ namespace OmiLAXR.ReCoPa
             StopTracking();
             _filter.enabled = true;
             
-            p.AfterStarted += (_) =>
+            p.AfterStartedPipeline += (_) =>
             {
                 _wasTracking = true;
                 SendMeta("tracking:start");
