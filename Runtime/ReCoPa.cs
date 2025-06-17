@@ -2,11 +2,12 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
-using System.Reflection;
 using Newtonsoft.Json.Linq;
+using OmiLAXR.Endpoints;
 using OmiLAXR.Modules;
 using OmiLAXR.Pipelines;
 using OmiLAXR.ReCoPa.Filters;
+using OmiLAXR.xAPI;
 using OmiLAXR.xAPI.Endpoints;
 
 using SocketIOClient;
@@ -43,6 +44,8 @@ namespace OmiLAXR.ReCoPa
 
         private Coroutine _scenarioUpdateCoroutine;
         private bool _wasTracking;
+
+        public xApiRegistry xApiRegistry;
 
         public bool IsConnected => _socket != null && _socket.Connected;
         public UnityEvent onConnected = new UnityEvent();
@@ -358,10 +361,15 @@ namespace OmiLAXR.ReCoPa
             var lrs = _learningRecordStore;
             var actor = _learnerPipeline.actor;
             
-            var uri = lrs.statementIdUri;
-            var endpoint = lrs.credentials.endpoint;
-            var key = lrs.credentials.username;
-            var secret = lrs.credentials.password;
+            if (xApiRegistry == null)
+                xApiRegistry = FindFirstObjectByType<xApiRegistry>();
+            
+            var uri = xApiRegistry.uri;
+
+            var credentials = lrs.Credentials;
+            var endpoint = credentials.endpoint;
+            var key = credentials.username;
+            var secret = credentials.password;
             var actorName = actor.actorName;
             var actorEmail = actor.actorEmail;
             
@@ -395,10 +403,18 @@ namespace OmiLAXR.ReCoPa
                 var lrs = _learningRecordStore;
 
                 // apply lrs configs
-                lrs.credentials.endpoint = config.lrs;
-                lrs.credentials.username = config.auth.key;
-                lrs.credentials.password = config.auth.secret;
-                lrs.statementIdUri = config.uri;
+                var credentials = new BasicAuthCredentials()
+                {
+                    endpoint = config.lrs,
+                    username = config.auth.key,
+                    password = config.auth.secret
+                };
+                lrs.Credentials = credentials;
+
+                if (xApiRegistry == null)
+                    xApiRegistry = FindFirstObjectByType<xApiRegistry>();
+                
+                xApiRegistry.uri = config.uri;
 
                 // apply game objects filter
                 _filter.gameObjects = config.gameObjects;
