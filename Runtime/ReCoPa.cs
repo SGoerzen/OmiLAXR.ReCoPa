@@ -3,6 +3,7 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using Newtonsoft.Json.Linq;
+using OmiLAXR.Components;
 using OmiLAXR.Endpoints;
 using OmiLAXR.Modules;
 using OmiLAXR.Pipelines;
@@ -134,7 +135,7 @@ namespace OmiLAXR.ReCoPa
             p.AfterStartedPipeline -= HookIntoLearner;
            
             
-            _gameObjects = p.trackingObjects.Select(o => o.GetTrackingName()).ToArray();
+            _gameObjects = p.TrackingObjects.Select(o => o.GetTrackingName()).ToArray();
             Array.Sort(_gameObjects);
             
             _actions = p.Actions.Keys.ToArray();
