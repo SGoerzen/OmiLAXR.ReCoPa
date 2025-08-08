@@ -39,9 +39,11 @@ namespace OmiLAXR.ReCoPa
         // variables for websocket communication
         private SocketIOUnity _socket;
 
-        private LearnerPipeline _learnerPipeline;
-        private LearnerPipelineExtension _learnerPipelineExt;
-        private LearningRecordStore _learningRecordStore;
+        [SerializeField, Tooltip("Target pipeline ReCoPa is communicating with. By default (if empty) it will look for <LearnerPipeline>.")]
+        private Pipeline targetPipeline;
+
+        [SerializeField, Tooltip("Target Learning Record Store. By default (if empty) it take the first found.")]
+        private LearningRecordStore learningRecordStore;
 
         private Coroutine _scenarioUpdateCoroutine;
         private bool _wasTracking;
@@ -57,7 +59,7 @@ namespace OmiLAXR.ReCoPa
 
         private TrackingScenario? _currentScenario;
         private TrackingConfig? _trackingConfig;
-        private string[] _gameObjects;
+        private List<string> _gameObjects = new List<string>();
         private string[] _actions;
         private string[] _gestures;
 
@@ -75,33 +77,27 @@ namespace OmiLAXR.ReCoPa
 
         public TrackingMeta GetMeta(string metaContext) => new TrackingMeta()
         {
-            ["isTracking"] = _learnerPipeline.IsRunning,
+            ["isTracking"] = targetPipeline.IsRunning,
             ["isTrackingPaused"] = _isTrackingPaused,
             ["isCalibrated"] = _eyeTrackingModule?.IsCalibrated(),
             ["computerName"] = Environment.MachineName,
-            ["actorName"] = _learnerPipeline.actor.actorName,
-            ["actorEmail"] = _learnerPipeline.actor.actorEmail,
+            ["actorName"] = targetPipeline.actor.actorName,
+            ["actorEmail"] = targetPipeline.actor.actorEmail,
             ["metaContext"] = metaContext,
         };
         
         private void Awake()
         {
 #if UNITY_2021_1_OR_NEWER
-            _learnerPipeline = FindFirstObjectByType<LearnerPipeline>();
-            _learningRecordStore = FindFirstObjectByType<LearningRecordStore>();
-
-            _learnerPipelineExt = FindFirstObjectByType<LearnerPipelineExtension>();
+            targetPipeline = FindFirstObjectByType<LearnerPipeline>();
 #else
-            _learnerPipeline = FindObjectOfType<LearnerPipeline>();
+            targetPipeline = FindObjectOfType<LearnerPipeline>();
             _learningRecordStore = FindObjectOfType<LearningRecordStore>();
-
-            _learnerPipelineExt = FindObjectOfType<LearnerPipelineExtension>();
 #endif
-            _filter = _learnerPipelineExt.GetComponentInChildren<ReCoPaFilter>();
+            _filter = GetComponentInChildren<ReCoPaFilter>();
+            targetPipeline.Add(_filter);
             
-            _learnerPipeline.Add(_learnerPipelineExt);
-            
-            _eyeTrackingModule = _learnerPipeline.GetComponentInChildren<IEyeTrackingModule>();
+            _eyeTrackingModule = targetPipeline.GetComponentInChildren<IEyeTrackingModule>();
             
             Init();
             InitSocket();
@@ -120,23 +116,27 @@ namespace OmiLAXR.ReCoPa
             {
                 DebugLog.Warning("Cannot find any eye tracking module.");
             }
-            
-            if (!_learnerPipeline)
+
+            var p = targetPipeline;
+            if (!targetPipeline)
             {
                 DebugLog.Warning("Cannot find a <LearnerPipeline>.");
                 return;
             }
-            
-            _learnerPipeline.AfterStartedPipeline += HookIntoLearner;
+
+            p.AfterFoundObjects += objects =>
+            {
+                if (objects == null)
+                    return;
+                _gameObjects.AddRange(objects.Select(o => o.GetTrackingName()));
+                _gameObjects.Sort();
+            };
+            targetPipeline.AfterStartedPipeline += HookIntoLearner;
         }
 
         private void HookIntoLearner(Pipeline p)
         {
             p.AfterStartedPipeline -= HookIntoLearner;
-           
-            
-            _gameObjects = p.TrackingObjects.Select(o => o.GetTrackingName()).ToArray();
-            Array.Sort(_gameObjects);
             
             _actions = p.Actions.Keys.ToArray();
             Array.Sort(_actions);
@@ -146,7 +146,7 @@ namespace OmiLAXR.ReCoPa
                 
             var config = new TrackingConfig()
             {
-                gameObjects = _gameObjects,
+                gameObjects = _gameObjects.ToArray(),
                 gestures = _gestures,
                 actions = _actions
             };
@@ -171,8 +171,8 @@ namespace OmiLAXR.ReCoPa
         
         private void StartTracking()
         {
-            _learningRecordStore.StartSending();
-            _learnerPipeline.StartPipeline();
+            //_learningRecordStore.StartSending();
+            targetPipeline.StartPipeline();
         }
 
         private void PauseTracking()
@@ -187,8 +187,8 @@ namespace OmiLAXR.ReCoPa
 
         private void StopTracking()
         {
-            _learningRecordStore.StopSending();
-            _learnerPipeline.StopPipeline();
+            //_learningRecordStore.StopSending();
+            targetPipeline.StopPipeline();
         }
         
         private void InitSocket()
@@ -359,8 +359,8 @@ namespace OmiLAXR.ReCoPa
             if (_trackingConfig.HasValue) 
                 return _trackingConfig.Value;
 
-            var lrs = _learningRecordStore;
-            var actor = _learnerPipeline.actor;
+            var lrs = FindAnyObjectByType<OmiLAXR.xAPI.Endpoints.LearningRecordStore>();
+            var actor = targetPipeline.actor;
             
             if (xApiRegistry == null)
                 xApiRegistry = FindFirstObjectByType<xApiRegistry>();
@@ -401,7 +401,7 @@ namespace OmiLAXR.ReCoPa
             UnityMainThreadDispatcher.Instance().EnqueueAsync(() =>
             {
                 var config = e.GetValue<TrackingConfig>();
-                var lrs = _learningRecordStore;
+                var lrs = learningRecordStore;
 
                 // apply lrs configs
                 var credentials = new BasicAuthCredentials()
@@ -421,14 +421,14 @@ namespace OmiLAXR.ReCoPa
                 _filter.gameObjects = config.gameObjects;
                 
                 // disable all actions
-                _learnerPipeline.SetDisabledActions(true);
+                targetPipeline.SetDisabledActions(true);
                 // enable only selected actions
-                _learnerPipeline.SetDisabledActions(false, config.actions);
+                targetPipeline.SetDisabledActions(false, config.actions);
                 
                 // disable all gestures
-                _learnerPipeline.SetDisabledGestures(true);
+                targetPipeline.SetDisabledGestures(true);
                 // enable only selected gestures
-                _learnerPipeline.SetDisabledGestures(false, config.gestures);
+                targetPipeline.SetDisabledGestures(false, config.gestures);
                 
                 StartTracking();
             });
@@ -475,7 +475,7 @@ namespace OmiLAXR.ReCoPa
             _currentScenario = new TrackingScenario()
             {
                 name = sceneName,
-                gameObjects = _gameObjects,
+                gameObjects = _gameObjects.ToArray(),
                 actions = _actions,
                 gestures = _gestures
             };
