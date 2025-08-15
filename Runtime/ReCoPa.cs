@@ -391,6 +391,19 @@ namespace OmiLAXR.ReCoPa
             return _trackingConfig.Value;
         }
 
+        private void SetupEndpoints(EndpointConfigs map)
+        {
+            // setup endpoint configs
+            var endpoints = FindObjectsByType<Endpoint>(FindObjectsInactive.Exclude, FindObjectsSortMode.None);
+            foreach (var endpoint in endpoints)
+            {
+                var epName = endpoint.GetType().Name;
+                var config = map[epName];
+                if (config == null)
+                    continue;
+                endpoint.ConsumeDataMap(config);
+            }
+        }
 
         /// <summary>
         /// Serialize e.data to TrackingInfo, call Setup and Start Tracking.
@@ -411,6 +424,9 @@ namespace OmiLAXR.ReCoPa
                     password = config.auth.secret
                 };
                 lrs.SetAuthConfig(credentials);
+
+                if (_trackingConfig.HasValue)
+                    SetupEndpoints(_trackingConfig.Value.endpoints);
 
                 if (xApiRegistry == null)
                     xApiRegistry = FindFirstObjectByType<xApiRegistry>();
