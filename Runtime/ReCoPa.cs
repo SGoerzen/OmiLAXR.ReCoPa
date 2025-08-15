@@ -410,7 +410,7 @@ namespace OmiLAXR.ReCoPa
                     username = config.auth.key,
                     password = config.auth.secret
                 };
-                lrs.Credentials = credentials;
+                lrs.SetAuthConfig(credentials);
 
                 if (xApiRegistry == null)
                     xApiRegistry = FindFirstObjectByType<xApiRegistry>();
