@@ -10,7 +10,7 @@
   "licensesUrl": "https://gitlab.com/learntech-rwth/omilaxr-framework/v2/omilaxr.modules.recopa/-/blob/main/LICENSE",
   "homepage": "https://omilaxr.dev/",
   "dependencies": {
-    "com.rwth.unity.omilaxr": "2.0.0",
+    "com.rwth.unity.omilaxr": "2.1.1",
     "com.unity.nuget.newtonsoft-json": "3.0.2",
     "com.itisnajim.socketiounity": "1.1.5"
   },
