@@ -8,6 +8,7 @@ using OmiLAXR.Endpoints;
 using OmiLAXR.Modules;
 using OmiLAXR.Pipelines;
 using OmiLAXR.ReCoPa.Filters;
+using OmiLAXR.Types;
 using OmiLAXR.xAPI;
 using OmiLAXR.xAPI.Endpoints;
 
@@ -31,7 +32,7 @@ namespace OmiLAXR.ReCoPa
     [RequireComponent(typeof(UnityMainThreadDispatcher))]
     [AddComponentMenu("OmiLAXR / Modules / ReCoPa")]
     [DefaultExecutionOrder(-1)]
-    public class ReCoPa : OmiLAXR.Modules.Module, IDebugSender
+    public class ReCoPa : PipelineComponent, IDebugSender
     {
         private UnityMainThreadDispatcher _dispatcher;
         public string connectionUrl = "http://127.0.0.1:4567";
@@ -63,7 +64,7 @@ namespace OmiLAXR.ReCoPa
         private string[] _actions;
         private string[] _gestures;
 
-        private IEyeTrackingModule _eyeTrackingModule;
+        private ICalibratable _eyeTrackingModule;
         private ReCoPaFilter _filter;
         
         private string sceneName => SceneManager.GetActiveScene().name;
@@ -79,7 +80,7 @@ namespace OmiLAXR.ReCoPa
         {
             ["isTracking"] = targetPipeline.IsRunning,
             ["isTrackingPaused"] = _isTrackingPaused,
-            ["isCalibrated"] = _eyeTrackingModule?.IsCalibrated(),
+            ["isCalibrated"] = _eyeTrackingModule?.IsCalibrated,
             ["computerName"] = Environment.MachineName,
             ["actorName"] = targetPipeline.actor.actorName,
             ["actorEmail"] = targetPipeline.actor.actorEmail,
@@ -97,7 +98,7 @@ namespace OmiLAXR.ReCoPa
             _filter = GetComponentInChildren<ReCoPaFilter>();
             targetPipeline.Add(_filter);
             
-            _eyeTrackingModule = targetPipeline.GetComponentInChildren<IEyeTrackingModule>();
+            _eyeTrackingModule = targetPipeline.GetComponentInChildren<ICalibratable>();
             
             Init();
             InitSocket();
@@ -110,7 +111,7 @@ namespace OmiLAXR.ReCoPa
             if (_eyeTrackingModule != null)
             {
                 _eyeTrackingModule.OnCalibrationStarted += () => SendMeta("calibration:start");
-                _eyeTrackingModule.OnCalibrationStopped += () => SendMeta("calibration:stop");
+                _eyeTrackingModule.OnCalibrationEnded += (successful) => SendMeta("calibration:stop");
             }
             else
             {
