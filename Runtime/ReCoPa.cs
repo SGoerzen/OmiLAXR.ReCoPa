@@ -5,12 +5,11 @@ using System.Linq;
 using Newtonsoft.Json.Linq;
 using OmiLAXR.Components;
 using OmiLAXR.Endpoints;
-using OmiLAXR.Modules;
 using OmiLAXR.Pipelines;
 using OmiLAXR.ReCoPa.Filters;
 using OmiLAXR.Types;
+using OmiLAXR.Utils;
 using OmiLAXR.xAPI;
-using OmiLAXR.xAPI.Endpoints;
 
 using SocketIOClient;
 using SocketIOClient.Newtonsoft.Json;
@@ -43,13 +42,13 @@ namespace OmiLAXR.ReCoPa
         [SerializeField, Tooltip("Target pipeline ReCoPa is communicating with. By default (if empty) it will look for <LearnerPipeline>.")]
         private Pipeline targetPipeline;
 
-        [SerializeField, Tooltip("Target Learning Record Store. By default (if empty) it take the first found.")]
-        private LearningRecordStore learningRecordStore;
-
         private Coroutine _scenarioUpdateCoroutine;
         private bool _wasTracking;
 
         public xApiRegistry xApiRegistry;
+        
+        [SerializeField]
+        private List<Endpoint> endpoints;
 
         public bool IsConnected => _socket != null && _socket.Connected;
         public UnityEvent onConnected = new UnityEvent();
@@ -270,10 +269,7 @@ namespace OmiLAXR.ReCoPa
         private void BeginScenarioUpdate()
         {
             _isDirty = true;
-            UnityMainThreadDispatcher.Instance().EnqueueAsync(() =>
-            {
-                _scenarioUpdateCoroutine = StartCoroutine(UpdateScenario());
-            });
+            _scenarioUpdateCoroutine = StartCoroutine(UpdateScenario());
         }
 
         private void OnDisconnected()
@@ -345,6 +341,9 @@ namespace OmiLAXR.ReCoPa
             
             var scenario = GetScenario(reload);
             var tracking = GetTrackingConfig(scenario);
+
+            UnityEngine.Debug.Log(scenario);
+            UnityEngine.Debug.Log(tracking);
             
             // transfer resulted JSONObject to socket server
             _socket.EmitAsync("clients:scenario", scenario);
@@ -415,16 +414,11 @@ namespace OmiLAXR.ReCoPa
             UnityMainThreadDispatcher.Instance().EnqueueAsync(() =>
             {
                 var config = e.GetValue<TrackingConfig>();
-                var lrs = learningRecordStore;
 
-                // apply lrs configs
-                var credentials = new BasicAuthCredentials()
+                foreach (var endpoint in endpoints)
                 {
-                    endpoint = config.lrs,
-                    username = config.auth.key,
-                    password = config.auth.secret
-                };
-                lrs.SetAuthConfig(credentials);
+                    //endpoint.ConsumeDataMap(config);
+                }
 
                 if (_trackingConfig.HasValue)
                     SetupEndpoints(_trackingConfig.Value.endpoints);
