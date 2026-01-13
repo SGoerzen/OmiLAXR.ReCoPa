@@ -1,6 +1,6 @@
 {
   "name": "com.rwth.unity.omilaxr.recopa",
-  "version": "2.0.0",
+  "version": "1.0.0",
   "displayName": "OmiLAXR.ReCoPa",
   "description": "An OmiLAXR module for managing communication between ReCoPa and OmiLAXR.",
   "unity": "2021.3",
@@ -10,9 +10,9 @@
   "licensesUrl": "https://gitlab.com/learntech-rwth/omilaxr-framework/v2/omilaxr.modules.recopa/-/blob/main/LICENSE",
   "homepage": "https://omilaxr.dev/",
   "dependencies": {
-    "com.rwth.unity.omilaxr": "2.0.0",
+    "com.rwth.unity.omilaxr": "2.1.1",
     "com.unity.nuget.newtonsoft-json": "3.0.2",
-    "com.itisnajim.socketiounity": "1.1.4"
+    "com.itisnajim.socketiounity": "1.1.5"
   },
   "keywords": [
     "OmiLAXR",

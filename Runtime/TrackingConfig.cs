@@ -1,3 +1,5 @@
+using OmiLAXR.Utils;
+
 namespace OmiLAXR.ReCoPa
 {
     public struct TrackingConfig
@@ -44,6 +46,7 @@ namespace OmiLAXR.ReCoPa
         public string[] actions;
         public string[] gestures;
         public bool isBlacklist;
+        public EndpointConfigs endpoints;
 
         public override string ToString()
         {
