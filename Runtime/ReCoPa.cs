@@ -7,13 +7,9 @@ using OmiLAXR.Components;
 using OmiLAXR.Endpoints;
 using OmiLAXR.Pipelines;
 using OmiLAXR.ReCoPa.Filters;
+using OmiLAXR.ReCoPa.Network;
 using OmiLAXR.Types;
-using OmiLAXR.Utils;
 using OmiLAXR.xAPI;
-
-using SocketIOClient;
-using SocketIOClient.Newtonsoft.Json;
-using SocketIOClient.Transport;
 
 #if UNITY_EDITOR
 using UnityEditor;
@@ -22,6 +18,7 @@ using UnityEditor;
 using UnityEngine;
 using UnityEngine.Events;
 using UnityEngine.SceneManagement;
+using SocketIOResponse = SocketIOClient.SocketIOResponse;
 
 namespace OmiLAXR.ReCoPa
 {
@@ -36,8 +33,8 @@ namespace OmiLAXR.ReCoPa
         private UnityMainThreadDispatcher _dispatcher;
         public string connectionUrl = "http://127.0.0.1:4567";
 
-        // variables for websocket communication
-        private SocketIOUnity _socket;
+        // TCP Socket client
+        private UnitySocketClient _socket;
 
         [SerializeField, Tooltip("Target pipeline ReCoPa is communicating with. By default (if empty) it will look for <LearnerPipeline>.")]
         private Pipeline targetPipeline;
@@ -90,9 +87,10 @@ namespace OmiLAXR.ReCoPa
         {
 #if UNITY_2021_1_OR_NEWER
             targetPipeline = FindFirstObjectByType<LearnerPipeline>();
+            xApiRegistry = FindFirstObjectByType<xApiRegistry>();
 #else
             targetPipeline = FindObjectOfType<LearnerPipeline>();
-            _learningRecordStore = FindObjectOfType<LearningRecordStore>();
+            xApiRegistry = FindObjectOfType<xApiRegistry>();
 #endif
             _filter = GetComponentInChildren<ReCoPaFilter>();
             targetPipeline.Add(_filter);
@@ -166,40 +164,44 @@ namespace OmiLAXR.ReCoPa
                 SendMeta("tracking:stop");
             };
             
-            _socket.Emit("clients:tracking", JObject.FromObject(config));
+            _socket.EmitAsync("clients:tracking", JObject.FromObject(config).ToString());
         }
         
         private void StartTracking()
         {
-            //_learningRecordStore.StartSending();
+            foreach (var e in endpoints)
+                e.StartSending();
             targetPipeline.StartPipeline();
         }
 
         private void PauseTracking()
         {
+            foreach (var e in endpoints)
+                e.PauseSending();
             _isTrackingPaused = true;
         }
 
         private void ResumeTracking()
         {
+            foreach (var e in endpoints)
+                e.StartSending();
             _isTrackingPaused = false;
         }
 
         private void StopTracking()
         {
-            //_learningRecordStore.StopSending();
+            foreach (var e in endpoints)
+                e.StopSending();
             targetPipeline.StopPipeline();
         }
         
         private void InitSocket()
         {
-            // stop if a socket is assigned
             if (_socket != null)
                 return;
 
-            _socket = new SocketIOUnity(connectionUrl, new SocketIOOptions()
+            _socket = new SocketClient(connectionUrl, new SocketClientOptions()
             {
-                Transport = TransportProtocol.WebSocket,
                 Reconnection = doReconnection,
                 ReconnectionDelay = reconnectionDelay,
                 ReconnectionDelayMax = reconnectionMaxDelay,
@@ -209,36 +211,29 @@ namespace OmiLAXR.ReCoPa
                     ["clientType"] = "participant",
                     ["version"] = "2.0.0"
                 }
-            }, SocketIOUnity.UnityThreadScope.FixedUpdate);
-            _socket.JsonSerializer = new NewtonsoftJsonSerializer();
+            });
 
-            // Initialize socket.io communication events
-            _socket.OnConnected += (_, _) => OnConnected();
-            _socket.OnReconnected += (_, _) => OnReconnected();
-            _socket.OnDisconnected += (_, _) => OnDisconnected();
-            _socket.OnReconnectAttempt += (_, i) =>
-            {
-                DebugLog.Warning("Reconnecting to ReCoPa... Attempt " + i);
-            };
-            _socket.OnReconnectError += (_, exception) =>
-            {
-                DebugLog.Error($"Reconnection error '{exception}'.");
-            };
-            _socket.OnReconnectFailed += (_, args) =>
+            _socket.OnConnected += (_, __) => OnConnected();
+            _socket.OnReconnected += (_, __) => OnReconnected();
+            _socket.OnDisconnected += (_, __) => OnDisconnected();
+
+            _socket.OnReconnectAttempt += (_, i) => DebugLog.Warning("Reconnecting to ReCoPa... Attempt " + i);
+            _socket.OnReconnectError += (_, ex) => DebugLog.Error($"Reconnection error '{ex}'.");
+            _socket.OnReconnectFailed += (_, __) =>
             {
                 DebugLog.Error("Failed connecting to ReCoPa. Make sure you have started it.");
                 enabled = false;
             };
-            _socket.OnError += (_, msg) => { DebugLog.Error($"Error '{msg}'."); };
+
+            _socket.OnError += (_, msg) => DebugLog.Error($"Error '{msg}'.");
 
             _socket.OnUnityThread("clients:quit", _ => Quit());
-
             _socket.On("clients:all", _ => _isDirty = true);
 
             _socket.On("clients:scenario", DispatchScenarioInformation);
 
-             _socket.On("clients:calibration:start", _ => _eyeTrackingModule.StartCalibration());
-             _socket.On("clients:calibration:stop", _ => _eyeTrackingModule.StopCalibration());
+            _socket.On("clients:calibration:start", _ => _eyeTrackingModule.StartCalibration());
+            _socket.On("clients:calibration:stop", _ => _eyeTrackingModule.StopCalibration());
 
             _socket.On("clients:tracking", DispatchTrackingInformation);
             _socket.On("clients:tracking:start", DispatchStartTracking);
@@ -246,7 +241,7 @@ namespace OmiLAXR.ReCoPa
             _socket.On("clients:tracking:pause", DispatchPauseTracking);
             _socket.On("clients:tracking:resume", DispatchResumeTracking);
 
-            _socket.ConnectAsync();
+            _ = _socket.ConnectAsync();
         }
 
         private void OnConnected()
@@ -444,21 +439,15 @@ namespace OmiLAXR.ReCoPa
                 StartTracking();
             });
         }
-        
+
         private void DispatchPauseTracking(SocketIOResponse e)
-        {
-            UnityMainThreadDispatcher.Instance().EnqueueAsync(PauseTracking);
-        }
-        
+            => UnityMainThreadDispatcher.Instance().EnqueueAsync(PauseTracking);
+
         private void DispatchResumeTracking(SocketIOResponse e)
-        {
-            UnityMainThreadDispatcher.Instance().EnqueueAsync(ResumeTracking);
-        }
+            => UnityMainThreadDispatcher.Instance().EnqueueAsync(ResumeTracking);
 
         private void DispatchStopTracking(SocketIOResponse e)
-        {
-            UnityMainThreadDispatcher.Instance().EnqueueAsync(StopTracking);
-        }
+            => UnityMainThreadDispatcher.Instance().EnqueueAsync(StopTracking);
 
         private void DispatchTrackingInformation(SocketIOResponse e)
         {
