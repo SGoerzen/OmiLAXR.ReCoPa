@@ -1,5 +1,4 @@
 using System;
-using System.Net.Sockets;
 
 namespace OmiLAXR.ReCoPa.Network
 {
@@ -13,6 +12,7 @@ namespace OmiLAXR.ReCoPa.Network
         }
         
         private readonly UnityThreadScope _scope;
+        private readonly UnityMainThreadDispatcher _dispatcher;
 
         // Overload wie bei SocketIOUnity(..., UnityThreadScope.FixedUpdate)
         public UnitySocketClient(string connectionUrl, SocketClientOptions options, UnityThreadScope scope)
@@ -22,13 +22,13 @@ namespace OmiLAXR.ReCoPa.Network
         }
 
         // Like SocketIOUnity.OnUnityThread("event", cb)
-        public void OnUnityThread(string eventName, Action<SocketIOResponse> callback)
+        public void OnUnityThread(string eventName, Action<SocketResponse> callback)
         {
             // Wir registrieren normal, dispatchen aber auf Unity main thread
             On(eventName, resp =>
             {
                 // nutzt dein vorhandenes UnityMainThreadDispatcher
-                UnityMainThreadDispatcher.Instance().EnqueueAsync(() => callback(resp));
+                _dispatcher.EnqueueAsync(() => callback(resp));
             });
         }
     }

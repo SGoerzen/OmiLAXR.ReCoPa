@@ -2,6 +2,7 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
 using Newtonsoft.Json.Linq;
 using OmiLAXR.Components;
 using OmiLAXR.Endpoints;
@@ -18,54 +19,52 @@ using UnityEditor;
 using UnityEngine;
 using UnityEngine.Events;
 using UnityEngine.SceneManagement;
-using SocketIOResponse = SocketIOClient.SocketIOResponse;
 
 namespace OmiLAXR.ReCoPa
 {
-    /// <summary>
-    /// This adapter is needed to connect OmiLAXR Tracking System with the Researcher Companion Panel.
-    /// </summary>
-    [RequireComponent(typeof(UnityMainThreadDispatcher))]
     [AddComponentMenu("OmiLAXR / Modules / ReCoPa")]
     [DefaultExecutionOrder(-1)]
     public class ReCoPa : PipelineComponent, IDebugSender
     {
-        private UnityMainThreadDispatcher _dispatcher;
         public string connectionUrl = "http://127.0.0.1:4567";
+
+        // ✅ Unity main-thread context
+        private SynchronizationContext _unityCtx;
+
+        private void RunOnUnityThread(Action a)
+        {
+            // Unity's SynchronizationContext executes these on main thread
+            _unityCtx.Post(_ => a(), null);
+        }
 
         // TCP Socket client
         private UnitySocketClient _socket;
 
-        [SerializeField, Tooltip("Target pipeline ReCoPa is communicating with. By default (if empty) it will look for <LearnerPipeline>.")]
-        private Pipeline targetPipeline;
+        [SerializeField] private Pipeline targetPipeline;
 
         private Coroutine _scenarioUpdateCoroutine;
         private bool _wasTracking;
 
         public xApiRegistry xApiRegistry;
-        
-        [SerializeField]
-        private List<Endpoint> endpoints;
+        [SerializeField] private List<Endpoint> endpoints;
 
         public bool IsConnected => _socket != null && _socket.Connected;
         public UnityEvent onConnected = new UnityEvent();
         public UnityEvent onDisconnected = new UnityEvent();
         public UnityEvent onReconnected = new UnityEvent();
-        
-        private bool _isTrackingPaused;
 
+        private bool _isTrackingPaused;
         private TrackingScenario? _currentScenario;
         private TrackingConfig? _trackingConfig;
-        private List<string> _gameObjects = new List<string>();
+        private readonly List<string> _gameObjects = new();
         private string[] _actions;
         private string[] _gestures;
 
         private ICalibratable _eyeTrackingModule;
         private ReCoPaFilter _filter;
-        
-        private string sceneName => SceneManager.GetActiveScene().name;
 
-        private bool _isDirty = false;
+        private string sceneName => SceneManager.GetActiveScene().name;
+        private bool _isDirty;
 
         public bool doReconnection = true;
         public int reconnectionDelay = 30_000;
@@ -74,17 +73,27 @@ namespace OmiLAXR.ReCoPa
 
         public TrackingMeta GetMeta(string metaContext) => new TrackingMeta()
         {
-            ["isTracking"] = targetPipeline.IsRunning,
-            ["isTrackingPaused"] = _isTrackingPaused,
-            ["isCalibrated"] = _eyeTrackingModule?.IsCalibrated,
-            ["computerName"] = Environment.MachineName,
-            ["actorName"] = targetPipeline.actor.actorName,
-            ["actorEmail"] = targetPipeline.actor.actorEmail,
-            ["metaContext"] = metaContext,
+            //isTracking = targetPipeline.IsRunning,
+            isTrackingPaused = _isTrackingPaused,
+            //isCalibrated = _eyeTrackingModule?.IsCalibrated ?? false,
+            computerName = Environment.MachineName,
+            actorName = targetPipeline.actor.actorName,
+            actorEmail = targetPipeline.actor.actorEmail,
+            metaContext = metaContext,
         };
-        
+
         private void Awake()
         {
+            // ✅ capture Unity main thread context
+            _unityCtx = SynchronizationContext.Current;
+            if (_unityCtx == null)
+            {
+                // Very rare in Unity, but fail loudly so you notice
+                Debug.Error("[ReCoPa] SynchronizationContext is null. Main-thread dispatch will not work.");
+                _unityCtx = new SynchronizationContext();
+                SynchronizationContext.SetSynchronizationContext(_unityCtx);
+            }
+
 #if UNITY_2021_1_OR_NEWER
             targetPipeline = FindFirstObjectByType<LearnerPipeline>();
             xApiRegistry = FindFirstObjectByType<xApiRegistry>();
@@ -94,13 +103,11 @@ namespace OmiLAXR.ReCoPa
 #endif
             _filter = GetComponentInChildren<ReCoPaFilter>();
             targetPipeline.Add(_filter);
-            
+
             _eyeTrackingModule = targetPipeline.GetComponentInChildren<ICalibratable>();
-            
+
             Init();
             InitSocket();
-            
-            //SceneManager.sceneLoaded += ChangedScene;
         }
 
         private void Init()
@@ -108,24 +115,18 @@ namespace OmiLAXR.ReCoPa
             if (_eyeTrackingModule != null)
             {
                 _eyeTrackingModule.OnCalibrationStarted += () => SendMeta("calibration:start");
-                _eyeTrackingModule.OnCalibrationEnded += (successful) => SendMeta("calibration:stop");
-            }
-            else
-            {
-                DebugLog.Warning("Cannot find any eye tracking module.");
+                _eyeTrackingModule.OnCalibrationEnded += _ => SendMeta("calibration:stop");
             }
 
-            var p = targetPipeline;
             if (!targetPipeline)
             {
                 DebugLog.Warning("Cannot find a <LearnerPipeline>.");
                 return;
             }
 
-            p.AfterFoundObjects += objects =>
+            targetPipeline.AfterFoundObjects += objects =>
             {
-                if (objects == null)
-                    return;
+                if (objects == null) return;
                 _gameObjects.AddRange(objects.Select(o => o.GetTrackingName()));
                 _gameObjects.Sort();
             };
@@ -135,20 +136,20 @@ namespace OmiLAXR.ReCoPa
         private void HookIntoLearner(Pipeline p)
         {
             p.AfterStartedPipeline -= HookIntoLearner;
-            
+
             _actions = p.Actions.Keys.ToArray();
             Array.Sort(_actions);
-                
+
             _gestures = p.Gestures.Keys.ToArray();
             Array.Sort(_gestures);
-                
+
             var config = new TrackingConfig()
             {
                 gameObjects = _gameObjects.ToArray(),
                 gestures = _gestures,
                 actions = _actions
             };
-            
+
             StopTracking();
             _filter.enabled = true;
             
@@ -164,43 +165,38 @@ namespace OmiLAXR.ReCoPa
                 SendMeta("tracking:stop");
             };
             
-            _socket.EmitAsync("clients:tracking", JObject.FromObject(config).ToString());
+            _ = _socket.EmitAsync("clients:tracking", JObject.FromObject(config).ToString());
         }
-        
+
         private void StartTracking()
         {
-            foreach (var e in endpoints)
-                e.StartSending();
+            foreach (var e in endpoints) e.StartSending();
             targetPipeline.StartPipeline();
         }
 
         private void PauseTracking()
         {
-            foreach (var e in endpoints)
-                e.PauseSending();
+            foreach (var e in endpoints) e.PauseSending();
             _isTrackingPaused = true;
         }
 
         private void ResumeTracking()
         {
-            foreach (var e in endpoints)
-                e.StartSending();
+            foreach (var e in endpoints) e.StartSending();
             _isTrackingPaused = false;
         }
 
         private void StopTracking()
         {
-            foreach (var e in endpoints)
-                e.StopSending();
+            foreach (var e in endpoints) e.StopSending();
             targetPipeline.StopPipeline();
         }
-        
+
         private void InitSocket()
         {
-            if (_socket != null)
-                return;
+            if (_socket != null) return;
 
-            _socket = new SocketClient(connectionUrl, new SocketClientOptions()
+            _socket = new UnitySocketClient(connectionUrl, new SocketClientOptions()
             {
                 Reconnection = doReconnection,
                 ReconnectionDelay = reconnectionDelay,
@@ -211,7 +207,7 @@ namespace OmiLAXR.ReCoPa
                     ["clientType"] = "participant",
                     ["version"] = "2.0.0"
                 }
-            });
+            }, UnitySocketClient.UnityThreadScope.Update);
 
             _socket.OnConnected += (_, __) => OnConnected();
             _socket.OnReconnected += (_, __) => OnReconnected();
@@ -227,7 +223,7 @@ namespace OmiLAXR.ReCoPa
 
             _socket.OnError += (_, msg) => DebugLog.Error($"Error '{msg}'.");
 
-            _socket.OnUnityThread("clients:quit", _ => Quit());
+            _socket.On("clients:quit", _ => RunOnUnityThread(Quit));
             _socket.On("clients:all", _ => _isDirty = true);
 
             _socket.On("clients:scenario", DispatchScenarioInformation);
@@ -271,16 +267,11 @@ namespace OmiLAXR.ReCoPa
         {
             DebugLog.Print("Disconnected from ReCoPa.");
             onDisconnected.Invoke();
-            UnityMainThreadDispatcher.Instance().EnqueueAsync(() =>
-            {
-                if (_scenarioUpdateCoroutine != null)
-                    StopCoroutine(_scenarioUpdateCoroutine);
-            });
+
+            if (_scenarioUpdateCoroutine != null)
+                StopCoroutine(_scenarioUpdateCoroutine);
         }
 
-        /// <summary>
-        /// Close application.
-        /// </summary>
         private static void Quit()
         {
 #if UNITY_EDITOR
@@ -292,8 +283,7 @@ namespace OmiLAXR.ReCoPa
 
         private void OnApplicationQuit()
         {
-            if (_socket == null)
-                return;
+            if (_socket == null) return;
             _socket.Disconnect();
             _socket.Dispose();
             _socket = null;
@@ -304,24 +294,22 @@ namespace OmiLAXR.ReCoPa
         /// </summary>
         private void SendMeta(string metaContext)
         {
-            if (_socket == null)
-                return;
-        
-            UnityMainThreadDispatcher.Instance().EnqueueAsync(() =>
+            if (_socket == null) return;
+
+            // already on unity thread typically, but safe:
+            RunOnUnityThread(() =>
             {
-                _socket.EmitAsync("clients:meta", GetMeta(metaContext));
+                _ = _socket.EmitAsync("clients:meta", GetMeta(metaContext));
             });
         }
-        
+
         private IEnumerator UpdateScenario()
         {
             while (true)
             {
                 if (_socket.Connected && _isDirty)
-                {
                     SendScenario();
-                }
-        
+
                 yield return new WaitForSeconds(5);
             }
         }
@@ -331,21 +319,15 @@ namespace OmiLAXR.ReCoPa
         /// </summary>
         private void SendScenario(bool reload = false)
         {
-            if (_socket == null)
-                return;
-            
+            if (_socket == null) return;
+
             var scenario = GetScenario(reload);
             var tracking = GetTrackingConfig(scenario);
 
-            UnityEngine.Debug.Log(scenario);
-            UnityEngine.Debug.Log(tracking);
-            
-            // transfer resulted JSONObject to socket server
-            _socket.EmitAsync("clients:scenario", scenario);
-            _socket.EmitAsync("clients:tracking", tracking);
-            
+            _ = _socket.EmitAsync("clients:scenario", scenario);
+            _ = _socket.EmitAsync("clients:tracking", tracking);
+
             DebugLog.Print("Sent scenario information.");
-            
             _isDirty = false;
         }
         public TrackingConfig GetScenarioTrackingConfig() => GetTrackingConfig(GetScenario());
@@ -385,7 +367,7 @@ namespace OmiLAXR.ReCoPa
 
             return _trackingConfig.Value;
         }
-
+        
         private void SetupEndpoints(EndpointConfigs map)
         {
             // setup endpoint configs
@@ -400,78 +382,58 @@ namespace OmiLAXR.ReCoPa
             }
         }
 
-        /// <summary>
-        /// Serialize e.data to TrackingInfo, call Setup and Start Tracking.
-        /// </summary>
-        /// <param name="e">e.data contains {username, email, lrs, uri, authUsername, authKey }</param>
-        private void DispatchStartTracking(SocketIOResponse e)
+        private void DispatchStartTracking(SocketResponse e)
         {
-            UnityMainThreadDispatcher.Instance().EnqueueAsync(() =>
+            var config = e.GetValue<TrackingConfig>();
+            foreach (var endpoint in endpoints)
             {
-                var config = e.GetValue<TrackingConfig>();
+                //endpoint.ConsumeDataMap(config);
+            }
 
-                foreach (var endpoint in endpoints)
-                {
-                    //endpoint.ConsumeDataMap(config);
-                }
+            if (_trackingConfig.HasValue)
+                SetupEndpoints(_trackingConfig.Value.endpoints);
 
-                if (_trackingConfig.HasValue)
-                    SetupEndpoints(_trackingConfig.Value.endpoints);
+            if (xApiRegistry == null)
+                xApiRegistry = FindFirstObjectByType<xApiRegistry>();
+                
+            xApiRegistry.uri = config.uri;
 
-                if (xApiRegistry == null)
-                    xApiRegistry = FindFirstObjectByType<xApiRegistry>();
+            // apply game objects filter
+            _filter.gameObjects = config.gameObjects;
                 
-                xApiRegistry.uri = config.uri;
+            // disable all actions
+            targetPipeline.SetDisabledActions(true);
+            // enable only selected actions
+            targetPipeline.SetDisabledActions(false, config.actions);
+                
+            // disable all gestures
+            targetPipeline.SetDisabledGestures(true);
+            // enable only selected gestures
+            targetPipeline.SetDisabledGestures(false, config.gestures);
 
-                // apply game objects filter
-                _filter.gameObjects = config.gameObjects;
-                
-                // disable all actions
-                targetPipeline.SetDisabledActions(true);
-                // enable only selected actions
-                targetPipeline.SetDisabledActions(false, config.actions);
-                
-                // disable all gestures
-                targetPipeline.SetDisabledGestures(true);
-                // enable only selected gestures
-                targetPipeline.SetDisabledGestures(false, config.gestures);
-                
-                StartTracking();
-            });
+            StartTracking();
         }
 
-        private void DispatchPauseTracking(SocketIOResponse e)
-            => UnityMainThreadDispatcher.Instance().EnqueueAsync(PauseTracking);
+        private void DispatchPauseTracking(SocketResponse e) => PauseTracking();
+        private void DispatchResumeTracking(SocketResponse e) => ResumeTracking();
+        private void DispatchStopTracking(SocketResponse e) => StopTracking();
 
-        private void DispatchResumeTracking(SocketIOResponse e)
-            => UnityMainThreadDispatcher.Instance().EnqueueAsync(ResumeTracking);
-
-        private void DispatchStopTracking(SocketIOResponse e)
-            => UnityMainThreadDispatcher.Instance().EnqueueAsync(StopTracking);
-
-        private void DispatchTrackingInformation(SocketIOResponse e)
+        private void DispatchTrackingInformation(SocketResponse e)
         {
-            UnityMainThreadDispatcher.Instance().EnqueueAsync(() =>
-            {
-                var tracking = GetScenarioTrackingConfig();
-                _socket.EmitAsync("clients:tracking", JObject.FromObject(tracking));
-            });
+            var tracking = GetScenarioTrackingConfig();
+            _ = _socket.EmitAsync("clients:tracking", JObject.FromObject(tracking));
         }
 
-        private void DispatchScenarioInformation(SocketIOResponse e)
+        private void DispatchScenarioInformation(SocketResponse e)
         {
-            UnityMainThreadDispatcher.Instance().EnqueueAsync(() =>
-            {
-                var scenario = GetScenario();
-                _socket.EmitAsync("clients:scenario", JObject.FromObject(scenario));
-            });
+            var scenario = GetScenario();
+            _ = _socket.EmitAsync("clients:scenario", JObject.FromObject(scenario));
         }
         
         public TrackingScenario GetScenario(bool reload = false)
         {
-            if (!reload && _currentScenario.HasValue)
-                return _currentScenario.Value;
-            
+            if (!reload && _currentScenario.HasValue) return _currentScenario.Value;
+
             _currentScenario = new TrackingScenario()
             {
                 name = sceneName,
@@ -485,5 +447,4 @@ namespace OmiLAXR.ReCoPa
         private static readonly DebugLog Debug = new DebugLog("ReCoPa Module");
         public DebugLog DebugLog => Debug;
     }
-
 }

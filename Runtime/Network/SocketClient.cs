@@ -39,63 +39,8 @@ namespace OmiLAXR.ReCoPa.Network
             return JsonConvert.DeserializeObject<T>(json)!;
         }
     }
-
-    // ------------------------------------------------------------
-    // SocketIOResponse-like wrapper (GetValue<T>())
-    // ------------------------------------------------------------
-    public sealed class SocketIOResponse
-    {
-        private readonly string _raw;
-        private readonly IJsonSerializer _serializer;
-
-        public SocketIOResponse(string raw, IJsonSerializer serializer)
-        {
-            _raw = raw ?? string.Empty;
-            _serializer = serializer ?? throw new ArgumentNullException(nameof(serializer));
-        }
-
-        public string RawText => _raw;
-        public T GetValue<T>() => _serializer.Deserialize<T>(_raw);
-
-        public JToken GetToken()
-        {
-            if (string.IsNullOrWhiteSpace(_raw)) return JValue.CreateNull();
-            return JToken.Parse(_raw);
-        }
-    }
-
-    // ------------------------------------------------------------
-    // Options (SocketIOUnity-like fields)
-    // ------------------------------------------------------------
-    public sealed class SocketClientOptions
-    {
-        // Timeouts (ms)
-        public int ConnectTimeoutMs = 5000;
-        public int SendTimeoutMs = 5000;
-        public int ReceiveTimeoutMs = 30000;
-
-        // Reconnect (SocketIOUnity-like)
-        public bool Reconnection = true;
-        public int ReconnectionDelay = 30_000;
-        public int ReconnectionDelayMax = 60_000;
-        public int ReconnectionAttempts = 10; // <=0 => unlimited
-
-        // TCP
-        public bool NoDelay = true;
-        public bool KeepAlive = true;
-
-        // Payload sizing
-        public int MaxMessageBytes = 1024 * 1024;
-
-        // Mild exponential backoff on top of ReconnectionDelay (optional)
-        public double ReconnectBackoffFactor = 1.4;
-
-        // For non-Unity: post events back to captured SynchronizationContext
-        public bool UseSynchronizationContext = true;
-
-        // Socket.IO "ExtraHeaders" (TCP has no headers -> sent once as "clients:hello")
-        public Dictionary<string, string> ExtraHeaders = new Dictionary<string, string>();
-    }
+    
+    
 
     // ------------------------------------------------------------
     // CLIENT: SocketClient (pure C#)
@@ -108,7 +53,7 @@ namespace OmiLAXR.ReCoPa.Network
         private IJsonSerializer _serializer = new NewtonsoftJsonSerializer();
 
         private readonly object _gate = new();
-        private readonly Dictionary<string, List<Action<SocketIOResponse>>> _handlers = new(StringComparer.Ordinal);
+        private readonly Dictionary<string, List<Action<SocketResponse>>> _handlers = new(StringComparer.Ordinal);
 
         private TcpClient? _tcp;
         private NetworkStream? _stream;
@@ -150,7 +95,7 @@ namespace OmiLAXR.ReCoPa.Network
         }
 
         // Like SocketIOUnity.On("event", cb)
-        public void On(string eventName, Action<SocketIOResponse> callback)
+        public void On(string eventName, Action<SocketResponse> callback)
         {
             if (eventName == null) throw new ArgumentNullException(nameof(eventName));
             if (callback == null) throw new ArgumentNullException(nameof(callback));
@@ -159,7 +104,7 @@ namespace OmiLAXR.ReCoPa.Network
             {
                 if (!_handlers.TryGetValue(eventName, out var list))
                 {
-                    list = new List<Action<SocketIOResponse>>();
+                    list = new List<Action<SocketResponse>>();
                     _handlers[eventName] = list;
                 }
                 list.Add(callback);
@@ -174,7 +119,9 @@ namespace OmiLAXR.ReCoPa.Network
             if (_disposed) throw new ObjectDisposedException(nameof(SocketClient));
             if (!Connected || _stream == null) throw new InvalidOperationException("SocketClient is not connected.");
 
-            string payload = _serializer.Serialize(data);
+            var payload = _serializer.Serialize(data);
+            
+            UnityEngine.Debug.Log($"Emitting event {eventName} with payload {payload}");
 
             return Framing.WriteMessageAsync(
                 _stream,
@@ -293,7 +240,7 @@ namespace OmiLAXR.ReCoPa.Network
 
             var connectTask = tcp.ConnectAsync(host, port);
 
-            int timeout = Math.Max(0, _opt.ConnectTimeoutMs);
+            var timeout = Math.Max(0, _opt.ConnectTimeoutMs);
             if (timeout > 0)
             {
                 var timeoutTask = Task.Delay(timeout, ct);
@@ -327,17 +274,17 @@ namespace OmiLAXR.ReCoPa.Network
 
         private void Dispatch(string eventName, string payload)
         {
-            List<Action<SocketIOResponse>>? list;
+            List<Action<SocketResponse>>? list;
 
             lock (_gate)
             {
                 _handlers.TryGetValue(eventName, out list);
-                list = list == null ? null : new List<Action<SocketIOResponse>>(list);
+                list = list == null ? null : new List<Action<SocketResponse>>(list);
             }
 
             if (list == null) return;
 
-            var resp = new SocketIOResponse(payload, _serializer);
+            var resp = new SocketResponse(payload, _serializer);
 
             foreach (var cb in list)
             {
@@ -358,16 +305,16 @@ namespace OmiLAXR.ReCoPa.Network
 
         private TimeSpan ComputeReconnectDelay(int attempt)
         {
-            double factor = Math.Max(1.0, _opt.ReconnectBackoffFactor);
+            var factor = Math.Max(1.0, _opt.ReconnectBackoffFactor);
             double baseMs = Math.Max(0, _opt.ReconnectionDelay);
-            double maxMs = Math.Max(baseMs, _opt.ReconnectionDelayMax);
+            var maxMs = Math.Max(baseMs, _opt.ReconnectionDelayMax);
 
-            double ms = baseMs * Math.Pow(factor, Math.Max(0, attempt - 1));
+            var ms = baseMs * Math.Pow(factor, Math.Max(0, attempt - 1));
             ms = Math.Min(ms, maxMs);
 
             // jitter +/- 10%
-            double jitter = ms * 0.1;
-            double r = ThreadSafeRandom.NextDouble();
+            var jitter = ms * 0.1;
+            var r = ThreadSafeRandom.NextDouble();
             ms = ms + (r * 2.0 - 1.0) * jitter;
 
             return TimeSpan.FromMilliseconds(Math.Max(0, ms));
@@ -435,11 +382,11 @@ namespace OmiLAXR.ReCoPa.Network
 
                 var plBytes = Encoding.UTF8.GetBytes(payload);
 
-                int bodyLen = 2 + evBytes.Length + plBytes.Length;
+                var bodyLen = 2 + evBytes.Length + plBytes.Length;
                 if (bodyLen <= 0 || bodyLen > maxMessageBytes)
                     throw new InvalidDataException($"Message too large: {bodyLen} > {maxMessageBytes}");
 
-                byte[] frame = new byte[4 + bodyLen];
+                var frame = new byte[4 + bodyLen];
                 BinaryPrimitives.WriteInt32BigEndian(frame.AsSpan(0, 4), bodyLen);
                 BinaryPrimitives.WriteUInt16BigEndian(frame.AsSpan(4, 2), (ushort)evBytes.Length);
 
@@ -457,33 +404,33 @@ namespace OmiLAXR.ReCoPa.Network
                 TimeSpan receiveTimeout,
                 CancellationToken ct)
             {
-                byte[] lenBuf = new byte[4];
+                var lenBuf = new byte[4];
                 await ReadExactAsync(stream, lenBuf, receiveTimeout, ct).ConfigureAwait(false);
 
-                int bodyLen = BinaryPrimitives.ReadInt32BigEndian(lenBuf.AsSpan());
+                var bodyLen = BinaryPrimitives.ReadInt32BigEndian(lenBuf.AsSpan());
                 if (bodyLen <= 0 || bodyLen > maxMessageBytes)
                     throw new InvalidDataException($"Invalid body length {bodyLen} (limit {maxMessageBytes}).");
 
-                byte[] body = new byte[bodyLen];
+                var body = new byte[bodyLen];
                 await ReadExactAsync(stream, body, receiveTimeout, ct).ConfigureAwait(false);
 
-                ushort evLen = BinaryPrimitives.ReadUInt16BigEndian(body.AsSpan(0, 2));
+                var evLen = BinaryPrimitives.ReadUInt16BigEndian(body.AsSpan(0, 2));
                 if (evLen == 0 || 2 + evLen > bodyLen)
                     throw new InvalidDataException("Invalid event name length.");
 
-                string ev = Encoding.UTF8.GetString(body, 2, evLen);
-                string payload = Encoding.UTF8.GetString(body, 2 + evLen, bodyLen - (2 + evLen));
+                var ev = Encoding.UTF8.GetString(body, 2, evLen);
+                var payload = Encoding.UTF8.GetString(body, 2 + evLen, bodyLen - (2 + evLen));
                 return (ev, payload);
             }
 
             private static async Task ReadExactAsync(NetworkStream stream, byte[] buffer, TimeSpan timeout, CancellationToken ct)
             {
-                int offset = 0;
+                var offset = 0;
                 using var linked = CreateTimeoutCts(timeout, ct);
 
                 while (offset < buffer.Length)
                 {
-                    int read = await stream.ReadAsync(buffer, offset, buffer.Length - offset, linked.Token).ConfigureAwait(false);
+                    var read = await stream.ReadAsync(buffer, offset, buffer.Length - offset, linked.Token).ConfigureAwait(false);
                     if (read == 0) throw new EndOfStreamException("Remote closed connection.");
                     offset += read;
                 }
