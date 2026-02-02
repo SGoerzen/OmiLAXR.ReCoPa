@@ -5,12 +5,17 @@ using System.Linq;
 using System.Threading;
 using Newtonsoft.Json.Linq;
 using OmiLAXR.Components;
+using OmiLAXR.Composers;
 using OmiLAXR.Endpoints;
+using OmiLAXR.Filters;
+using OmiLAXR.Hooks;
 using OmiLAXR.Pipelines;
+using OmiLAXR.ReCoPa.Endpoints;
 using OmiLAXR.ReCoPa.Filters;
 using OmiLAXR.ReCoPa.Network;
 using OmiLAXR.Types;
 using OmiLAXR.xAPI;
+using TinCan;
 
 #if UNITY_EDITOR
 using UnityEditor;
@@ -41,6 +46,7 @@ namespace OmiLAXR.ReCoPa
         private UnitySocketClient _socket;
 
         [SerializeField] private Pipeline targetPipeline;
+        public xApiDataProvider DataProvider { get; private set; }
 
         private Coroutine _scenarioUpdateCoroutine;
         private bool _wasTracking;
@@ -63,6 +69,8 @@ namespace OmiLAXR.ReCoPa
         private ICalibratable _eyeTrackingModule;
         private ReCoPaFilter _filter;
 
+        private List<PipelineComponent> _hookedComponents = new List<PipelineComponent>();
+
         private string sceneName => SceneManager.GetActiveScene().name;
         private bool _isDirty;
 
@@ -71,6 +79,39 @@ namespace OmiLAXR.ReCoPa
         public int reconnectionMaxDelay = 60_000;
         public int reconnectionAttempts = 10;
 
+        private TComponent HookInto<TComponent, TPipeline, TDataProvider>() 
+            where TComponent : PipelineComponent
+            where TPipeline : LearnerPipeline 
+            where TDataProvider : xApiDataProvider
+        {
+            // find pipeline and data provider
+#if UNITY_2021_1_OR_NEWER
+            var pipeline = FindAnyObjectByType<TPipeline>();
+            var dataProvider = FindAnyObjectByType<TDataProvider>();
+#else
+            var pipeline = FindObjectOfType<TPipeline>();
+            var dataProvider = FindObjectOfType<TDataProvider>();
+#endif
+            
+            // get target component
+            var component = gameObject.GetComponentInChildren<TComponent>();
+            
+            // store target component
+            _hookedComponents.Add(component);
+            
+            // add to OmiLAXR pipeline
+            if (component is Endpoint endpoint)
+                dataProvider.Endpoints.Add(endpoint);
+            else if (component is Hook hook)
+                dataProvider.Hooks.Add(hook);
+            else if (component is IComposer composer)
+                dataProvider.Composers.Add(composer);
+            else 
+                pipeline.Add(component);
+            
+            return component;
+        }
+        
         public TrackingMeta GetMeta(string metaContext) => new TrackingMeta()
         {
             //isTracking = targetPipeline.IsRunning,
@@ -101,15 +142,19 @@ namespace OmiLAXR.ReCoPa
             targetPipeline = FindObjectOfType<LearnerPipeline>();
             xApiRegistry = FindObjectOfType<xApiRegistry>();
 #endif
-            _filter = GetComponentInChildren<ReCoPaFilter>();
-            targetPipeline.Add(_filter);
+            DataProvider = targetPipeline.GetDataProvider<xApiDataProvider>();
+            
+            _filter = HookInto<ReCoPaFilter, LearnerPipeline, xApiDataProvider>();
+            
+            var endpoint = HookInto<ReCoPaEndpoint, LearnerPipeline, xApiDataProvider>();
+            endpoint.OnSentStatement += SendStatement;
 
             _eyeTrackingModule = targetPipeline.GetComponentInChildren<ICalibratable>();
 
             Init();
             InitSocket();
         }
-
+        
         private void Init()
         {
             if (_eyeTrackingModule != null)
@@ -133,6 +178,12 @@ namespace OmiLAXR.ReCoPa
             targetPipeline.AfterStartedPipeline += HookIntoLearner;
         }
 
+        private void SendStatement(Endpoint _, IStatement statement)
+        {
+            if (_socket == null) return;
+            _socket.Emit("clients:statement", statement.ToJsonString());
+        }
+
         private void HookIntoLearner(Pipeline p)
         {
             p.AfterStartedPipeline -= HookIntoLearner;
@@ -151,7 +202,10 @@ namespace OmiLAXR.ReCoPa
             };
 
             StopTracking();
-            _filter.enabled = true;
+            
+            // enable all hooked items
+            foreach (var hooked in _hookedComponents) 
+                hooked.enabled = true;
             
             p.AfterStartedPipeline += (_) =>
             {

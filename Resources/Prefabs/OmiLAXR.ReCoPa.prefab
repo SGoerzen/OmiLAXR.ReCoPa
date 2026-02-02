@@ -11,6 +11,7 @@ GameObject:
   - component: {fileID: 6162207576865913893}
   - component: {fileID: 185920571573498182}
   - component: {fileID: 4997686281546191099}
+  - component: {fileID: 270932138572254692}
   m_Layer: 0
   m_Name: OmiLAXR.ReCoPa
   m_TagString: Untagged
@@ -47,8 +48,8 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   connectionUrl: http://127.0.0.1:4567
   targetPipeline: {fileID: 0}
-  learningRecordStore: {fileID: 0}
   xApiRegistry: {fileID: 0}
+  endpoints: []
   onConnected:
     m_PersistentCalls:
       m_Calls: []
@@ -75,3 +76,16 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   gameObjects: []
+--- !u!114 &270932138572254692
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 7620992247766005529}
+  m_Enabled: 0
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 3184b0747b10467ebf15dd3b59f00b21, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  <RecordedStatements>k__BackingField: 0
