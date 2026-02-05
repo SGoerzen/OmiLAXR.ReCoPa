@@ -7,7 +7,6 @@ using Newtonsoft.Json.Linq;
 using OmiLAXR.Components;
 using OmiLAXR.Composers;
 using OmiLAXR.Endpoints;
-using OmiLAXR.Filters;
 using OmiLAXR.Hooks;
 using OmiLAXR.Pipelines;
 using OmiLAXR.ReCoPa.Endpoints;
@@ -15,7 +14,6 @@ using OmiLAXR.ReCoPa.Filters;
 using OmiLAXR.ReCoPa.Network;
 using OmiLAXR.Types;
 using OmiLAXR.xAPI;
-using TinCan;
 
 #if UNITY_EDITOR
 using UnityEditor;
@@ -38,12 +36,22 @@ namespace OmiLAXR.ReCoPa
 
         private void RunOnUnityThread(Action a)
         {
+            if (_isShuttingDown) return;
+            if (_unityCtx == null) return;
             // Unity's SynchronizationContext executes these on main thread
             _unityCtx.Post(_ => a(), null);
         }
 
         // TCP Socket client
         private SocketClient _socket;
+        private bool _isShuttingDown;
+        private EventHandler _onConnectedHandler;
+        private EventHandler _onReconnectedHandler;
+        private EventHandler _onDisconnectedHandler;
+        private EventHandler<int> _onReconnectAttemptHandler;
+        private EventHandler<Exception> _onReconnectErrorHandler;
+        private EventHandler _onReconnectFailedHandler;
+        private EventHandler<string> _onErrorHandler;
 
         [SerializeField] private Pipeline targetPipeline;
         public xApiDataProvider DataProvider { get; private set; }
@@ -156,6 +164,16 @@ namespace OmiLAXR.ReCoPa
             InitSocket();
             targetPipeline.enabled = true;
         }
+
+        private void OnDisable()
+        {
+            CleanupSocket();
+        }
+
+        private void OnDestroy()
+        {
+            CleanupSocket();
+        }
         
         private void Init()
         {
@@ -261,33 +279,106 @@ namespace OmiLAXR.ReCoPa
                 }
             });
 
-            _socket.OnConnected += (_, __) => OnConnected();
-            _socket.OnReconnected += (_, __) => OnReconnected();
-            _socket.OnDisconnected += (_, __) => OnDisconnected();
-
-            _socket.OnReconnectAttempt += (_, i) => DebugLog.Warning("Reconnecting to ReCoPa... Attempt " + i);
-            _socket.OnReconnectError += (_, ex) => DebugLog.Error($"Reconnection error '{ex}'.");
-            _socket.OnReconnectFailed += (_, __) =>
+            _onConnectedHandler ??= (_, __) =>
             {
+                if (_isShuttingDown || !this) return;
+                OnConnected();
+            };
+            _onReconnectedHandler ??= (_, __) =>
+            {
+                if (_isShuttingDown || !this) return;
+                OnReconnected();
+            };
+            _onDisconnectedHandler ??= (_, __) =>
+            {
+                if (_isShuttingDown || !this) return;
+                OnDisconnected();
+            };
+            _onReconnectAttemptHandler ??= (_, i) =>
+            {
+                if (_isShuttingDown || !this) return;
+                DebugLog.Warning("Reconnecting to ReCoPa... Attempt " + i);
+            };
+            _onReconnectErrorHandler ??= (_, ex) =>
+            {
+                if (_isShuttingDown || !this) return;
+                DebugLog.Error($"Reconnection error '{ex}'.");
+            };
+            _onReconnectFailedHandler ??= (_, __) =>
+            {
+                if (_isShuttingDown || !this) return;
                 DebugLog.Error("Failed connecting to ReCoPa. Make sure you have started it.");
                 enabled = false;
             };
+            _onErrorHandler ??= (_, msg) =>
+            {
+                if (_isShuttingDown || !this) return;
+                DebugLog.Error($"Error '{msg}'.");
+            };
 
-            _socket.OnError += (_, msg) => DebugLog.Error($"Error '{msg}'.");
+            _socket.OnConnected += _onConnectedHandler;
+            _socket.OnReconnected += _onReconnectedHandler;
+            _socket.OnDisconnected += _onDisconnectedHandler;
 
-            _socket.On("clients:quit", _ => RunOnUnityThread(Quit));
-            _socket.On("clients:all", _ => _isDirty = true);
+            _socket.OnReconnectAttempt += _onReconnectAttemptHandler;
+            _socket.OnReconnectError += _onReconnectErrorHandler;
+            _socket.OnReconnectFailed += _onReconnectFailedHandler;
 
-            _socket.On("clients:scenario", DispatchScenarioInformation);
+            _socket.OnError += _onErrorHandler;
 
-            _socket.On("clients:calibration:start", _ => _eyeTrackingModule.StartCalibration());
-            _socket.On("clients:calibration:stop", _ => _eyeTrackingModule.StopCalibration());
+            _socket.On("clients:quit", _ =>
+            {
+                if (_isShuttingDown || !this) return;
+                RunOnUnityThread(Quit);
+            });
+            _socket.On("clients:all", _ =>
+            {
+                if (_isShuttingDown || !this) return;
+                _isDirty = true;
+            });
 
-            _socket.On("clients:tracking", DispatchTrackingInformation);
-            _socket.On("clients:tracking:start", DispatchStartTracking);
-            _socket.On("clients:tracking:stop", DispatchStopTracking);
-            _socket.On("clients:tracking:pause", DispatchPauseTracking);
-            _socket.On("clients:tracking:resume", DispatchResumeTracking);
+            _socket.On("clients:scenario", payload =>
+            {
+                if (_isShuttingDown || !this) return;
+                DispatchScenarioInformation(payload);
+            });
+
+            _socket.On("clients:calibration:start", _ =>
+            {
+                if (_isShuttingDown || !this || _eyeTrackingModule == null) return;
+                _eyeTrackingModule.StartCalibration();
+            });
+            _socket.On("clients:calibration:stop", _ =>
+            {
+                if (_isShuttingDown || !this || _eyeTrackingModule == null) return;
+                _eyeTrackingModule.StopCalibration();
+            });
+
+            _socket.On("clients:tracking", payload =>
+            {
+                if (_isShuttingDown || !this) return;
+                DispatchTrackingInformation(payload);
+            });
+            _socket.On("clients:tracking:start", payload =>
+            {
+                if (_isShuttingDown || !this) return;
+                DispatchStartTracking(payload);
+            });
+            _socket.On("clients:tracking:stop", payload =>
+            {
+                if (_isShuttingDown || !this) return;
+                DispatchStopTracking(payload);
+            });
+            _socket.On("clients:tracking:pause", payload =>
+            {
+                if (_isShuttingDown || !this) return;
+                DispatchPauseTracking(payload);
+            });
+            _socket.On("clients:tracking:resume", payload =>
+            {
+                if (_isShuttingDown || !this) return;
+                DispatchResumeTracking(payload);
+            });
 
             _ = _socket.ConnectAsync();
         }
@@ -317,6 +408,7 @@ namespace OmiLAXR.ReCoPa
 
         private void OnDisconnected()
         {
+            if (_isShuttingDown || !this) return;
             DebugLog.Print("Disconnected from ReCoPa.");
             onDisconnected.Invoke();
 
@@ -335,7 +427,30 @@ namespace OmiLAXR.ReCoPa
 
         private void OnApplicationQuit()
         {
+            CleanupSocket();
+        }
+
+        private void CleanupSocket()
+        {
+            if (_isShuttingDown) return;
+            _isShuttingDown = true;
+
+            if (_scenarioUpdateCoroutine != null)
+            {
+                StopCoroutine(_scenarioUpdateCoroutine);
+                _scenarioUpdateCoroutine = null;
+            }
+
             if (_socket == null) return;
+
+            if (_onConnectedHandler != null) _socket.OnConnected -= _onConnectedHandler;
+            if (_onReconnectedHandler != null) _socket.OnReconnected -= _onReconnectedHandler;
+            if (_onDisconnectedHandler != null) _socket.OnDisconnected -= _onDisconnectedHandler;
+            if (_onReconnectAttemptHandler != null) _socket.OnReconnectAttempt -= _onReconnectAttemptHandler;
+            if (_onReconnectErrorHandler != null) _socket.OnReconnectError -= _onReconnectErrorHandler;
+            if (_onReconnectFailedHandler != null) _socket.OnReconnectFailed -= _onReconnectFailedHandler;
+            if (_onErrorHandler != null) _socket.OnError -= _onErrorHandler;
+
             _socket.Disconnect();
             _socket.Dispose();
             _socket = null;
@@ -346,12 +461,14 @@ namespace OmiLAXR.ReCoPa
         /// </summary>
         private void SendMeta(string metaContext)
         {
-            if (_socket == null) return;
+            if (_socket == null || _isShuttingDown) return;
 
             // already on unity thread typically, but safe:
+            var socket = _socket;
             RunOnUnityThread(() =>
             {
-                _ = _socket.EmitAsync("clients:meta", GetMeta(metaContext));
+                if (_isShuttingDown || socket == null) return;
+                _ = socket.EmitAsync("clients:meta", GetMeta(metaContext));
             });
         }
 
@@ -359,6 +476,9 @@ namespace OmiLAXR.ReCoPa
         {
             while (true)
             {
+                if (_isShuttingDown || _socket == null)
+                    yield break;
+
                 if (_socket.Connected && _isDirty)
                     SendScenario();
 

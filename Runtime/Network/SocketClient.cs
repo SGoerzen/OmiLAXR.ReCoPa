@@ -4,6 +4,7 @@ using System.Buffers.Binary;
 using System.Collections.Generic;
 using System.IO;
 using System.Net.Sockets;
+using System.Linq;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -67,6 +68,7 @@ namespace OmiLAXR.ReCoPa.Network
         private int _attempt;
         private bool _heartbeatReceived = true;
         private bool _heartbeatRunning;
+        private readonly List<(string EventName, string Payload)> _outgoingQueue = new();
 
         private SynchronizationContext? _syncContext;
 
@@ -120,20 +122,41 @@ namespace OmiLAXR.ReCoPa.Network
         public Task EmitAsync(string eventName, object data)
         {
             if (_disposed) throw new ObjectDisposedException(nameof(SocketClient));
-            if (!Connected || _stream == null) throw new InvalidOperationException("SocketClient is not connected.");
 
             var payload = _serializer.Serialize(data);
-            
             UnityEngine.Debug.Log($"Emitting event {eventName} with payload {payload}");
 
-            return Framing.WriteMessageAsync(
-                _stream,
-                eventName,
-                payload,
-                _opt.MaxMessageBytes,
-                TimeSpan.FromMilliseconds(Math.Max(0, _opt.SendTimeoutMs)),
-                _cts?.Token ?? CancellationToken.None
-            );
+            // If connected, send immediately
+            if (Connected && _stream != null)
+            {
+                return Framing.WriteMessageAsync(
+                    _stream,
+                    eventName,
+                    payload,
+                    _opt.MaxMessageBytes,
+                    TimeSpan.FromMilliseconds(Math.Max(0, _opt.SendTimeoutMs)),
+                    _cts?.Token ?? CancellationToken.None
+                );
+            }
+
+            // If buffering is enabled, enqueue and return completed task
+            if (_opt.BufferOutgoingWhenDisconnected)
+            {
+                lock (_gate)
+                {
+                    _outgoingQueue.Add((eventName, payload));
+                    if (_outgoingQueue.Count > Math.Max(1, _opt.MaxBufferedMessages))
+                    {
+                        // drop oldest
+                        _outgoingQueue.RemoveAt(0);
+                    }
+                }
+                UnityEngine.Debug.Log($"[ReCoPa] Buffered event '{eventName}', queue size now {_outgoingQueue.Count}");
+                return Task.CompletedTask;
+            }
+
+            // Default: throw when not connected (legacy behaviour)
+            throw new InvalidOperationException("SocketClient is not connected.");
         }
 
         // Like SocketIOUnity.ConnectAsync()
@@ -152,6 +175,8 @@ namespace OmiLAXR.ReCoPa.Network
             {
                 On("heartbeat:ping", resp => HandleHeartbeatPing());
             }
+
+            // ensure outgoing messages are handled when we reconnect
 
             _runTask = Task.Run(() => RunLoopAsync(_cts.Token));
             return Task.CompletedTask;
@@ -189,6 +214,16 @@ namespace OmiLAXR.ReCoPa.Network
                 try
                 {
                     await ConnectOnceAsync(host, port, ct).ConfigureAwait(false);
+
+                            // Flush any queued outgoing messages after connect
+                            try
+                            {
+                                await FlushOutgoingQueueAsync(ct).ConfigureAwait(false);
+                            }
+                            catch (Exception ex)
+                            {
+                                UnityEngine.Debug.LogWarning($"[ReCoPa] FlushOutgoingQueue failed: {ex.Message}");
+                            }
 
                     // TCP has no headers -> send once as hello event
                     if (_opt.ExtraHeaders != null && _opt.ExtraHeaders.Count > 0)
@@ -292,6 +327,48 @@ namespace OmiLAXR.ReCoPa.Network
                 ).ConfigureAwait(false);
 
                 Dispatch(ev, payload);
+            }
+        }
+
+        // Flush outgoing queue: send all buffered messages in order
+        private async Task FlushOutgoingQueueAsync(CancellationToken ct)
+        {
+            List<(string EventName, string Payload)> toSend;
+            lock (_gate)
+            {
+                if (_outgoingQueue.Count == 0) return;
+                toSend = new List<(string, string)>(_outgoingQueue);
+                _outgoingQueue.Clear();
+            }
+
+            foreach (var (ev, payload) in toSend)
+            {
+                if (ct.IsCancellationRequested) break;
+                try
+                {
+                    if (_stream == null) throw new InvalidOperationException("No stream while flushing queue.");
+                    await Framing.WriteMessageAsync(
+                        _stream,
+                        ev,
+                        payload,
+                        _opt.MaxMessageBytes,
+                        TimeSpan.FromMilliseconds(Math.Max(0, _opt.SendTimeoutMs)),
+                        ct
+                    ).ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    UnityEngine.Debug.LogWarning($"[ReCoPa] Failed to send buffered event '{ev}': {ex.Message}");
+                    // If a send fails, re-enqueue remaining messages and abort flush
+                    lock (_gate)
+                    {
+                        // Prepend remaining unsent messages back into queue
+                        var remaining = toSend.SkipWhile(t => !(t.EventName == ev && t.Payload == payload)).Skip(1).ToList();
+                        foreach (var r in remaining)
+                            _outgoingQueue.Insert(0, r);
+                    }
+                    throw;
+                }
             }
         }
 

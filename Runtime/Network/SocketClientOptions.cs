@@ -36,5 +36,9 @@ namespace OmiLAXR.ReCoPa.Network
 
         // Socket.IO "ExtraHeaders" (TCP has no headers -> sent once as "clients:hello")
         public Dictionary<string, string> ExtraHeaders = new Dictionary<string, string>();
+
+        // Outgoing buffering when disconnected
+        public bool BufferOutgoingWhenDisconnected = true; // if true, Emit will enqueue instead of throwing
+        public int MaxBufferedMessages = 1000; // cap for buffered messages
     }
 }
