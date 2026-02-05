@@ -258,6 +258,8 @@ namespace OmiLAXR.ReCoPa.Network
                 }
                 catch (Exception ex)
                 {
+                    if (ct.IsCancellationRequested || _disposed)
+                        break;
                     UnityEngine.Debug.LogError($"[ReCoPa] Connection error: {ex.GetType().Name}: {ex.Message}");
                     RaiseOnContext(() => OnError?.Invoke(this, ex.Message));
                     RaiseOnContext(() => OnReconnectError?.Invoke(this, ex));

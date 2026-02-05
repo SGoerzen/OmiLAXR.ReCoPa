@@ -2,11 +2,15 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
+using System.Reflection;
 using System.Threading;
 using Newtonsoft.Json.Linq;
+using OmiLAXR.Actors.HeartRate;
 using OmiLAXR.Components;
 using OmiLAXR.Composers;
+using OmiLAXR.Context;
 using OmiLAXR.Endpoints;
+using OmiLAXR.Filters;
 using OmiLAXR.Hooks;
 using OmiLAXR.Pipelines;
 using OmiLAXR.ReCoPa.Endpoints;
@@ -54,6 +58,8 @@ namespace OmiLAXR.ReCoPa
         private EventHandler<string> _onErrorHandler;
 
         [SerializeField] private Pipeline targetPipeline;
+        private HeartRateProvider _heartRateProvider;
+        private FpsMonitor _fpsMonitor;
         public xApiDataProvider DataProvider { get; private set; }
 
         private Coroutine _scenarioUpdateCoroutine;
@@ -61,6 +67,7 @@ namespace OmiLAXR.ReCoPa
 
         public xApiRegistry xApiRegistry;
         [SerializeField] private List<Endpoint> endpoints;
+        [SerializeField] private string sessionId;
 
         public bool IsConnected => _socket != null && _socket.Connected;
         public UnityEvent onConnected = new UnityEvent();
@@ -81,6 +88,8 @@ namespace OmiLAXR.ReCoPa
 
         private string sceneName => SceneManager.GetActiveScene().name;
         private bool _isDirty;
+        private bool _isMetaDirty;
+        private float _fps;
 
         public bool doReconnection = true;
         public int reconnectionDelay = 30_000;
@@ -128,6 +137,15 @@ namespace OmiLAXR.ReCoPa
             computerName = Environment.MachineName,
             actorName = targetPipeline.actor.actorName,
             actorEmail = targetPipeline.actor.actorEmail,
+            activeActorName = targetPipeline.actor.actorName,
+            activeActorEmail = targetPipeline.actor.actorEmail,
+            registrationId = sessionId,
+            endpoints = GetEndpointNames(),
+            filters = GetFilterNames(),
+            actions = _actions ?? Array.Empty<string>(),
+            gestures = _gestures ?? Array.Empty<string>(),
+            heartRate = _heartRateProvider?.GetHeartRate(),
+            fps = _fpsMonitor?.CurrentFPS,
             metaContext = metaContext,
         };
 
@@ -150,6 +168,8 @@ namespace OmiLAXR.ReCoPa
             targetPipeline = FindObjectOfType<LearnerPipeline>();
             xApiRegistry = FindObjectOfType<xApiRegistry>();
 #endif
+            _fpsMonitor = targetPipeline.GetComponentInChildren<FpsMonitor>();
+            _heartRateProvider = targetPipeline.GetComponentInChildren<HeartRateProvider>();
             DataProvider = targetPipeline.GetDataProvider<xApiDataProvider>();
             
             _filter = HookInto<ReCoPaFilter, LearnerPipeline, xApiDataProvider>();
@@ -168,6 +188,13 @@ namespace OmiLAXR.ReCoPa
         private void OnDisable()
         {
             CleanupSocket();
+        }
+
+        private void Update()
+        {
+            var dt = Time.unscaledDeltaTime;
+            if (dt > 0f)
+                _fps = 1f / dt;
         }
 
         private void OnDestroy()
@@ -335,6 +362,7 @@ namespace OmiLAXR.ReCoPa
             {
                 if (_isShuttingDown || !this) return;
                 _isDirty = true;
+                _isMetaDirty = true;
             });
 
             _socket.On("clients:scenario", payload =>
@@ -362,12 +390,12 @@ namespace OmiLAXR.ReCoPa
             _socket.On("clients:tracking:start", payload =>
             {
                 if (_isShuttingDown || !this) return;
-                DispatchStartTracking(payload);
+                //DispatchStartTracking(payload);
             });
             _socket.On("clients:tracking:stop", payload =>
             {
                 if (_isShuttingDown || !this) return;
-                DispatchStopTracking(payload);
+                //DispatchStopTracking(payload);
             });
             _socket.On("clients:tracking:pause", payload =>
             {
@@ -468,8 +496,9 @@ namespace OmiLAXR.ReCoPa
             RunOnUnityThread(() =>
             {
                 if (_isShuttingDown || socket == null) return;
-                _ = socket.EmitAsync("clients:meta", GetMeta(metaContext));
+                _ = socket.EmitAsync("clients:info", GetMeta(metaContext));
             });
+            _isMetaDirty = false;
         }
 
         private IEnumerator UpdateScenario()
@@ -482,7 +511,10 @@ namespace OmiLAXR.ReCoPa
                 if (_socket.Connected && _isDirty)
                     SendScenario();
 
-                yield return new WaitForSeconds(5);
+                if (_socket.Connected)
+                    SendMeta(_isMetaDirty ? "refresh" : "update");
+
+                yield return new WaitForSeconds(1);
             }
         }
 
@@ -614,6 +646,74 @@ namespace OmiLAXR.ReCoPa
                 gestures = _gestures
             };
             return _currentScenario.Value;
+        }
+
+        private string[] GetEndpointNames()
+        {
+            var found = FindObjectsByType<Endpoint>(FindObjectsInactive.Exclude, FindObjectsSortMode.None);
+            var names = found.Select(endpoint => endpoint.GetType().Name)
+                .Distinct()
+                .OrderBy(name => name)
+                .ToArray();
+            return names.Length > 0 ? names : Array.Empty<string>();
+        }
+
+        private string[] GetFilterNames()
+        {
+            var found = FindObjectsByType<Filter>(FindObjectsInactive.Exclude, FindObjectsSortMode.None);
+            var names = found.Select(filter => filter.GetType().Name)
+                .Distinct()
+                .OrderBy(name => name)
+                .ToArray();
+            return names.Length > 0 ? names : Array.Empty<string>();
+        }
+
+
+        private static bool TryReadNumericMember(Func<object> read, out float value)
+        {
+            value = 0f;
+            try
+            {
+                var raw = read();
+                if (raw == null) return false;
+
+                if (raw is float f)
+                {
+                    value = f;
+                    return value > 0f;
+                }
+                if (raw is double d)
+                {
+                    value = (float)d;
+                    return value > 0f;
+                }
+                if (raw is int i)
+                {
+                    value = i;
+                    return value > 0f;
+                }
+                if (raw is long l)
+                {
+                    value = l;
+                    return value > 0f;
+                }
+                if (raw is short s)
+                {
+                    value = s;
+                    return value > 0f;
+                }
+                if (raw is byte b)
+                {
+                    value = b;
+                    return value > 0f;
+                }
+            }
+            catch
+            {
+                return false;
+            }
+
+            return false;
         }
 
         private static readonly DebugLog Debug = new DebugLog("ReCoPa Module");
