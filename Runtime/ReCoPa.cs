@@ -1,3 +1,8 @@
+/*
+* SPDX-License-Identifier: AGPL-3.0-or-later
+* Copyright (C) 2025 Sergej Görzen <sergej.goerzen@gmail.com>
+* This file is part of OmiLAXR.
+*/
 using System;
 using System.Collections;
 using System.Collections.Generic;
@@ -29,10 +34,17 @@ using UnityEngine.SceneManagement;
 
 namespace OmiLAXR.ReCoPa
 {
+    /// <summary>
+    /// ReCoPa module entry point.
+    /// Manages socket connectivity, pipeline hooks, and tracking session lifecycle.
+    /// </summary>
     [AddComponentMenu("OmiLAXR / Modules / ReCoPa")]
     [DefaultExecutionOrder(-1)]
     public class ReCoPa : PipelineComponent, IDebugSender
     {
+        /// <summary>
+        /// Connection URL for the ReCoPa backend (e.g. http://127.0.0.1:4567).
+        /// </summary>
         public string connectionUrl = "http://127.0.0.1:4567";
 
         // ✅ Unity main-thread context
@@ -57,21 +69,54 @@ namespace OmiLAXR.ReCoPa
         private EventHandler _onReconnectFailedHandler;
         private EventHandler<string> _onErrorHandler;
 
+        /// <summary>
+        /// Target pipeline for tracking and endpoint integration.
+        /// </summary>
         [SerializeField] private Pipeline targetPipeline;
         private HeartRateProvider _heartRateProvider;
         private FpsMonitor _fpsMonitor;
+
+        /// <summary>
+        /// Active xAPI data provider resolved from the pipeline.
+        /// </summary>
         public xApiDataProvider DataProvider { get; private set; }
 
         private Coroutine _scenarioUpdateCoroutine;
         private bool _wasTracking;
 
+        /// <summary>
+        /// Registry for xAPI extensions and activity metadata.
+        /// </summary>
         public xApiRegistry xApiRegistry;
+
+        /// <summary>
+        /// Endpoints that should receive statements.
+        /// </summary>
         [SerializeField] private List<Endpoint> endpoints;
+
+        /// <summary>
+        /// Session identifier used for tracking registrations.
+        /// </summary>
         [SerializeField] private string sessionId;
 
+        /// <summary>
+        /// True if the underlying socket client is connected.
+        /// </summary>
         public bool IsConnected => _socket != null && _socket.Connected;
+
+        /// <summary>
+        /// UnityEvent fired when the socket connects for the first time.
+        /// </summary>
         public UnityEvent onConnected = new UnityEvent();
+
+        /// <summary>
+        /// UnityEvent fired when the socket disconnects.
+        /// </summary>
         public UnityEvent onDisconnected = new UnityEvent();
+
+        /// <summary>
+        /// UnityEvent fired when the socket reconnects.
+        /// </summary>
         public UnityEvent onReconnected = new UnityEvent();
 
         private bool _isTrackingPaused;
@@ -91,9 +136,24 @@ namespace OmiLAXR.ReCoPa
         private bool _isMetaDirty;
         private float _fps;
 
+        /// <summary>
+        /// Enables automatic reconnection behaviour.
+        /// </summary>
         public bool doReconnection = true;
+
+        /// <summary>
+        /// Initial delay for reconnection attempts in milliseconds.
+        /// </summary>
         public int reconnectionDelay = 30_000;
+
+        /// <summary>
+        /// Maximum delay between reconnection attempts in milliseconds.
+        /// </summary>
         public int reconnectionMaxDelay = 60_000;
+
+        /// <summary>
+        /// Maximum number of reconnection attempts.
+        /// </summary>
         public int reconnectionAttempts = 10;
 
         private TComponent HookInto<TComponent, TPipeline, TDataProvider>() 
@@ -129,6 +189,11 @@ namespace OmiLAXR.ReCoPa
             return component;
         }
         
+        /// <summary>
+        /// Builds a <see cref="TrackingMeta"/> snapshot for transmission.
+        /// </summary>
+        /// <param name="metaContext">Additional context string to include</param>
+        /// <returns>Populated tracking metadata</returns>
         public TrackingMeta GetMeta(string metaContext) => new TrackingMeta()
         {
             //isTracking = targetPipeline.IsRunning,
@@ -534,7 +599,17 @@ namespace OmiLAXR.ReCoPa
             DebugLog.Print("Sent scenario information.");
             _isDirty = false;
         }
+        /// <summary>
+        /// Returns the tracking configuration for the current scenario.
+        /// </summary>
+        /// <returns>Tracking configuration derived from the active scenario</returns>
         public TrackingConfig GetScenarioTrackingConfig() => GetTrackingConfig(GetScenario());
+
+        /// <summary>
+        /// Builds or returns a cached tracking configuration for the given scenario.
+        /// </summary>
+        /// <param name="scenario">Scenario used to populate tracking config</param>
+        /// <returns>Tracking configuration</returns>
         public TrackingConfig GetTrackingConfig(TrackingScenario scenario)
         {
             if (_trackingConfig.HasValue) 
@@ -634,6 +709,11 @@ namespace OmiLAXR.ReCoPa
             _ = _socket.EmitAsync("clients:scenario", JObject.FromObject(scenario));
         }
         
+        /// <summary>
+        /// Returns the current tracking scenario, optionally forcing a rebuild.
+        /// </summary>
+        /// <param name="reload">If true, rebuilds the scenario from current state</param>
+        /// <returns>Tracking scenario snapshot</returns>
         public TrackingScenario GetScenario(bool reload = false)
         {
             if (!reload && _currentScenario.HasValue) return _currentScenario.Value;
@@ -717,6 +797,10 @@ namespace OmiLAXR.ReCoPa
         }
 
         private static readonly DebugLog Debug = new DebugLog("ReCoPa Module");
+
+        /// <summary>
+        /// Logger instance for ReCoPa module diagnostics.
+        /// </summary>
         public DebugLog DebugLog => Debug;
     }
 }

@@ -1,13 +1,20 @@
+/*
+* SPDX-License-Identifier: AGPL-3.0-or-later
+* Copyright (C) 2025 Sergej Görzen <sergej.goerzen@gmail.com>
+* This file is part of OmiLAXR.
+*/
 namespace OmiLAXR.ReCoPa.Network
 {
     /// <summary>
-    /// Vordefinierte Reconnect-Konfigurationen für verschiedene Szenarien
+    /// Vordefinierte Reconnect-Konfigurationen für verschiedene Szenarien.
+    /// Erleichtert die Wahl eines passenden Reconnect-Profils ohne Detail-Setup.
     /// </summary>
     public static class ReconnectConfiguration
     {
         /// <summary>
-        /// Aggressive Reconnection - schnelle Wiederverbindung (für LAN/Lokal-Netzwerke)
+        /// Aggressive Reconnection - schnelle Wiederverbindung (für LAN/Lokal-Netzwerke).
         /// </summary>
+        /// <returns>Konfigurierte <see cref="SocketClientOptions"/></returns>
         public static SocketClientOptions CreateAggressiveConfig()
         {
             return new SocketClientOptions
@@ -29,8 +36,9 @@ namespace OmiLAXR.ReCoPa.Network
         }
 
         /// <summary>
-        /// Moderates Reconnect - ausgewogenes Setup (Standard)
+        /// Moderates Reconnect - ausgewogenes Setup (Standard).
         /// </summary>
+        /// <returns>Konfigurierte <see cref="SocketClientOptions"/></returns>
         public static SocketClientOptions CreateModerateConfig()
         {
             return new SocketClientOptions
@@ -52,8 +60,9 @@ namespace OmiLAXR.ReCoPa.Network
         }
 
         /// <summary>
-        /// Konservatives Reconnect - robuster für unstabile Verbindungen
+        /// Konservatives Reconnect - robuster für unstabile Verbindungen.
         /// </summary>
+        /// <returns>Konfigurierte <see cref="SocketClientOptions"/></returns>
         public static SocketClientOptions CreateConservativeConfig()
         {
             return new SocketClientOptions
@@ -75,7 +84,7 @@ namespace OmiLAXR.ReCoPa.Network
         }
 
         /// <summary>
-        /// Beispiel: Verwendung in ReCoPa
+        /// Beispielhafte Verwendung in ReCoPa.
         /// </summary>
         public static void Example()
         {

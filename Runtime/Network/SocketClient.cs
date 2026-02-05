@@ -1,3 +1,8 @@
+/*
+* SPDX-License-Identifier: AGPL-3.0-or-later
+* Copyright (C) 2025 Sergej Görzen <sergej.goerzen@gmail.com>
+* This file is part of OmiLAXR.
+*/
 #nullable enable
 using System;
 using System.Buffers.Binary;
@@ -14,17 +19,38 @@ using Newtonsoft.Json.Linq;
 
 namespace OmiLAXR.ReCoPa.Network
 {
-    // ------------------------------------------------------------
-    // JSON Serializer abstraction (default: Newtonsoft)
-    // ------------------------------------------------------------
+    /// <summary>
+    /// Abstraction layer for JSON serialization and deserialization.
+    /// Allows swapping the JSON backend without changing the socket client.
+    /// </summary>
     public interface IJsonSerializer
     {
+        /// <summary>
+        /// Serialize a value to JSON.
+        /// </summary>
+        /// <param name="value">Value to serialize</param>
+        /// <returns>JSON string</returns>
         string Serialize(object? value);
+
+        /// <summary>
+        /// Deserialize a JSON string into a strongly-typed value.
+        /// </summary>
+        /// <typeparam name="T">Target type</typeparam>
+        /// <param name="json">JSON input</param>
+        /// <returns>Deserialized value</returns>
         T Deserialize<T>(string json);
     }
 
+    /// <summary>
+    /// Default JSON serializer backed by Newtonsoft.Json.
+    /// </summary>
     public sealed class NewtonsoftJsonSerializer : IJsonSerializer
     {
+        /// <summary>
+        /// Serialize a value using Newtonsoft.Json semantics.
+        /// </summary>
+        /// <param name="value">Value to serialize</param>
+        /// <returns>JSON string</returns>
         public string Serialize(object? value)
         {
             if (value == null) return string.Empty;
@@ -33,6 +59,12 @@ namespace OmiLAXR.ReCoPa.Network
             return JsonConvert.SerializeObject(value);
         }
 
+        /// <summary>
+        /// Deserialize JSON using Newtonsoft.Json.
+        /// </summary>
+        /// <typeparam name="T">Target type</typeparam>
+        /// <param name="json">JSON input</param>
+        /// <returns>Deserialized value</returns>
         public T Deserialize<T>(string json)
         {
             if (string.IsNullOrWhiteSpace(json))
@@ -46,6 +78,10 @@ namespace OmiLAXR.ReCoPa.Network
     // ------------------------------------------------------------
     // CLIENT: SocketClient (pure C#)
     // ------------------------------------------------------------
+    /// <summary>
+    /// TCP-based Socket.IO-like client for ReCoPa transport.
+    /// Supports reconnects, heartbeat, and buffering for disconnected states.
+    /// </summary>
     public partial class SocketClient : IDisposable
     {
         private readonly string _connectionUrl;
@@ -73,24 +109,60 @@ namespace OmiLAXR.ReCoPa.Network
         private SynchronizationContext? _syncContext;
 
         // SocketIOUnity-like events
+        /// <summary>
+        /// Fired when the client connects for the first time.
+        /// </summary>
         public event EventHandler? OnConnected;
+
+        /// <summary>
+        /// Fired when the client reconnects after a disconnect.
+        /// </summary>
         public event EventHandler? OnReconnected;
+
+        /// <summary>
+        /// Fired when the client disconnects.
+        /// </summary>
         public event EventHandler? OnDisconnected;
 
+        /// <summary>
+        /// Fired for each reconnect attempt with the attempt count.
+        /// </summary>
         public event EventHandler<int>? OnReconnectAttempt;
+
+        /// <summary>
+        /// Fired when a reconnect attempt fails with an exception.
+        /// </summary>
         public event EventHandler<Exception>? OnReconnectError;
+
+        /// <summary>
+        /// Fired when reconnect attempts are exhausted.
+        /// </summary>
         public event EventHandler? OnReconnectFailed;
 
+        /// <summary>
+        /// Fired on non-fatal client errors.
+        /// </summary>
         public event EventHandler<string>? OnError;
 
+        /// <summary>
+        /// True when the underlying TCP client is connected.
+        /// </summary>
         public bool Connected => _tcp?.Connected == true;
 
+        /// <summary>
+        /// Gets or sets the JSON serializer used for payloads.
+        /// </summary>
         public IJsonSerializer JsonSerializer
         {
             get => _serializer;
             set => _serializer = value ?? throw new ArgumentNullException(nameof(value));
         }
 
+        /// <summary>
+        /// Creates a socket client for the given connection URL and options.
+        /// </summary>
+        /// <param name="connectionUrl">Target host:port or URL</param>
+        /// <param name="options">Client configuration options</param>
         public SocketClient(string connectionUrl, SocketClientOptions options)
         {
             _connectionUrl = connectionUrl ?? throw new ArgumentNullException(nameof(connectionUrl));
@@ -100,6 +172,11 @@ namespace OmiLAXR.ReCoPa.Network
         }
 
         // Like SocketIOUnity.On("event", cb)
+        /// <summary>
+        /// Registers a callback for a named event.
+        /// </summary>
+        /// <param name="eventName">Event name</param>
+        /// <param name="callback">Callback invoked with the response</param>
         public void On(string eventName, Action<SocketResponse> callback)
         {
             if (eventName == null) throw new ArgumentNullException(nameof(eventName));
@@ -117,8 +194,19 @@ namespace OmiLAXR.ReCoPa.Network
         }
 
         // Like SocketIOUnity.Emit / EmitAsync
+        /// <summary>
+        /// Emits an event with a payload (fire-and-forget).
+        /// </summary>
+        /// <param name="eventName">Event name</param>
+        /// <param name="data">Payload object</param>
         public void Emit(string eventName, object data) => _ = EmitAsync(eventName, data);
 
+        /// <summary>
+        /// Emits an event asynchronously with a payload.
+        /// </summary>
+        /// <param name="eventName">Event name</param>
+        /// <param name="data">Payload object</param>
+        /// <returns>Task that completes when the payload is queued or sent</returns>
         public Task EmitAsync(string eventName, object data)
         {
             if (_disposed) throw new ObjectDisposedException(nameof(SocketClient));
@@ -160,13 +248,19 @@ namespace OmiLAXR.ReCoPa.Network
         }
 
         // Like SocketIOUnity.ConnectAsync()
+        /// <summary>
+        /// Starts the client connection and background run loop.
+        /// </summary>
+        /// <returns>Completed task once the run loop is started</returns>
         public Task ConnectAsync()
         {
             if (_disposed) throw new ObjectDisposedException(nameof(SocketClient));
             if (_runTask != null) return Task.CompletedTask;
 
+            // Create cancellation scope for background loops.
             _cts = new CancellationTokenSource();
 
+            // Capture current sync context for main-thread dispatch when requested.
             if (_opt.UseSynchronizationContext && _syncContext == null)
                 _syncContext = SynchronizationContext.Current;
 
@@ -178,10 +272,14 @@ namespace OmiLAXR.ReCoPa.Network
 
             // ensure outgoing messages are handled when we reconnect
 
+            // Start connection loop on a background task.
             _runTask = Task.Run(() => RunLoopAsync(_cts.Token));
             return Task.CompletedTask;
         }
 
+        /// <summary>
+        /// Disconnects the client and stops background tasks.
+        /// </summary>
         public void Disconnect()
         {
             if (_disposed) return;
@@ -189,6 +287,9 @@ namespace OmiLAXR.ReCoPa.Network
             SafeClose();
         }
 
+        /// <summary>
+        /// Disposes the client and releases all resources.
+        /// </summary>
         public void Dispose()
         {
             if (_disposed) return;
@@ -201,31 +302,35 @@ namespace OmiLAXR.ReCoPa.Network
             _runTask = null;
             _heartbeatTask = null;
         }
-
-        // ------------------------------------------------------------
-        // Internals
-        // ------------------------------------------------------------
+        
+        /// <summary>
+        /// Main connection loop that handles connect, receive, disconnect, and reconnect.
+        /// </summary>
+        /// <param name="ct">Cancellation token to stop the loop</param>
         private async Task RunLoopAsync(CancellationToken ct)
         {
+            // Resolve host/port once from the configured URL.
             var (host, port) = ParseHostPort(_connectionUrl);
 
+            // Keep trying until cancelled or reconnection is disabled.
             while (!ct.IsCancellationRequested)
             {
                 try
                 {
+                    // Establish a single connection attempt.
                     await ConnectOnceAsync(host, port, ct).ConfigureAwait(false);
 
-                            // Flush any queued outgoing messages after connect
-                            try
-                            {
-                                await FlushOutgoingQueueAsync(ct).ConfigureAwait(false);
-                            }
-                            catch (Exception ex)
-                            {
-                                UnityEngine.Debug.LogWarning($"[ReCoPa] FlushOutgoingQueue failed: {ex.Message}");
-                            }
+                    // Flush any queued outgoing messages after connect.
+                    try
+                    {
+                        await FlushOutgoingQueueAsync(ct).ConfigureAwait(false);
+                    }
+                    catch (Exception ex)
+                    {
+                        UnityEngine.Debug.LogWarning($"[ReCoPa] FlushOutgoingQueue failed: {ex.Message}");
+                    }
 
-                    // TCP has no headers -> send once as hello event
+                    // TCP has no headers -> send once as hello event.
                     if (_opt.ExtraHeaders != null && _opt.ExtraHeaders.Count > 0)
                     {
                         var helloObj = new JObject
@@ -236,9 +341,11 @@ namespace OmiLAXR.ReCoPa.Network
                         await EmitAsync("clients:hello", helloObj).ConfigureAwait(false);
                     }
 
+                    // Fire connected/reconnected callbacks.
                     if (_everConnected) RaiseOnContext(() => OnReconnected?.Invoke(this, EventArgs.Empty));
                     else RaiseOnContext(() => OnConnected?.Invoke(this, EventArgs.Empty));
 
+                    // Reset connection state markers.
                     _everConnected = true;
                     _attempt = 0;
                     _heartbeatReceived = true;
@@ -250,6 +357,7 @@ namespace OmiLAXR.ReCoPa.Network
                         _heartbeatTask = Task.Run(() => HeartbeatLoopAsync(ct), ct);
                     }
 
+                    // Enter blocking receive loop until disconnect.
                     await ReceiveLoopAsync(ct).ConfigureAwait(false);
                 }
                 catch (OperationCanceledException)
@@ -260,20 +368,24 @@ namespace OmiLAXR.ReCoPa.Network
                 {
                     if (ct.IsCancellationRequested || _disposed)
                         break;
+                    // Report non-fatal connection errors.
                     UnityEngine.Debug.LogError($"[ReCoPa] Connection error: {ex.GetType().Name}: {ex.Message}");
                     RaiseOnContext(() => OnError?.Invoke(this, ex.Message));
                     RaiseOnContext(() => OnReconnectError?.Invoke(this, ex));
                 }
                 finally
                 {
+                    // Always cleanup socket and notify disconnection.
                     _heartbeatRunning = false;
                     SafeClose();
                     RaiseOnContext(() => OnDisconnected?.Invoke(this, EventArgs.Empty));
                 }
 
+                // Exit if we should not reconnect.
                 if (ct.IsCancellationRequested) break;
                 if (!_opt.Reconnection) break;
 
+                // Increment attempt and notify listeners.
                 _attempt++;
                 RaiseOnContext(() => OnReconnectAttempt?.Invoke(this, _attempt));
 
@@ -284,6 +396,7 @@ namespace OmiLAXR.ReCoPa.Network
                     break;
                 }
 
+                // Wait before next reconnect attempt.
                 var delay = ComputeReconnectDelay(_attempt);
                 UnityEngine.Debug.Log($"[ReCoPa] Reconnect attempt {_attempt}, waiting {delay.TotalSeconds:F1}s");
                 try { await Task.Delay(delay, ct).ConfigureAwait(false); }
@@ -293,13 +406,17 @@ namespace OmiLAXR.ReCoPa.Network
 
         private async Task ConnectOnceAsync(string host, int port, CancellationToken ct)
         {
+            // Ensure any previous socket is closed before reconnect.
             SafeClose();
 
+            // Create and configure the TCP client.
             var tcp = new TcpClient();
             ConfigureSocket(tcp);
 
+            // Start connect attempt.
             var connectTask = tcp.ConnectAsync(host, port);
 
+            // Enforce connection timeout when configured.
             var timeout = Math.Max(0, _opt.ConnectTimeoutMs);
             if (timeout > 0)
             {
@@ -309,6 +426,7 @@ namespace OmiLAXR.ReCoPa.Network
                     throw new TimeoutException($"Connect timeout after {timeout}ms.");
             }
 
+            // Await completion and capture stream.
             await connectTask.ConfigureAwait(false);
 
             _tcp = tcp;
@@ -321,6 +439,7 @@ namespace OmiLAXR.ReCoPa.Network
 
             while (!ct.IsCancellationRequested)
             {
+                // Read next framed message from the TCP stream.
                 var (ev, payload) = await Framing.ReadMessageAsync(
                     _stream,
                     _opt.MaxMessageBytes,
@@ -328,6 +447,7 @@ namespace OmiLAXR.ReCoPa.Network
                     ct
                 ).ConfigureAwait(false);
 
+                // Dispatch to handlers.
                 Dispatch(ev, payload);
             }
         }
@@ -338,6 +458,7 @@ namespace OmiLAXR.ReCoPa.Network
             List<(string EventName, string Payload)> toSend;
             lock (_gate)
             {
+                // Nothing buffered -> no work to do.
                 if (_outgoingQueue.Count == 0) return;
                 toSend = new List<(string, string)>(_outgoingQueue);
                 _outgoingQueue.Clear();
@@ -348,7 +469,9 @@ namespace OmiLAXR.ReCoPa.Network
                 if (ct.IsCancellationRequested) break;
                 try
                 {
+                    // Stream must exist after a successful connect.
                     if (_stream == null) throw new InvalidOperationException("No stream while flushing queue.");
+                    // Send buffered message with normal framing and timeouts.
                     await Framing.WriteMessageAsync(
                         _stream,
                         ev,
@@ -380,12 +503,14 @@ namespace OmiLAXR.ReCoPa.Network
 
             lock (_gate)
             {
+                // Snapshot handler list under lock to avoid concurrent modification.
                 _handlers.TryGetValue(eventName, out list);
                 list = list == null ? null : new List<Action<SocketResponse>>(list);
             }
 
             if (list == null) return;
 
+            // Create response wrapper for typed deserialization.
             var resp = new SocketResponse(payload, _serializer);
 
             foreach (var cb in list)
@@ -399,14 +524,17 @@ namespace OmiLAXR.ReCoPa.Network
         {
             if (!_opt.UseSynchronizationContext || _syncContext == null)
             {
+                // No sync context: run directly on current thread.
                 a();
                 return;
             }
+            // Marshal back to captured synchronization context.
             _syncContext.Post(_ => a(), null);
         }
 
         private TimeSpan ComputeReconnectDelay(int attempt)
         {
+            // Compute exponential backoff based on attempt count.
             var factor = Math.Max(1.0, _opt.ReconnectBackoffFactor);
             double baseMs = Math.Max(0, _opt.ReconnectionDelay);
             var maxMs = Math.Max(baseMs, _opt.ReconnectionDelayMax);
