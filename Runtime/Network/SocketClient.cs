@@ -60,10 +60,13 @@ namespace OmiLAXR.ReCoPa.Network
 
         private CancellationTokenSource? _cts;
         private Task? _runTask;
+        private Task? _heartbeatTask;
 
         private bool _disposed;
         private bool _everConnected;
         private int _attempt;
+        private bool _heartbeatReceived = true;
+        private bool _heartbeatRunning;
 
         private SynchronizationContext? _syncContext;
 
@@ -144,6 +147,12 @@ namespace OmiLAXR.ReCoPa.Network
             if (_opt.UseSynchronizationContext && _syncContext == null)
                 _syncContext = SynchronizationContext.Current;
 
+            // Heartbeat Handler registrieren
+            if (_opt.EnableHeartbeat)
+            {
+                On("heartbeat:ping", resp => HandleHeartbeatPing());
+            }
+
             _runTask = Task.Run(() => RunLoopAsync(_cts.Token));
             return Task.CompletedTask;
         }
@@ -161,9 +170,11 @@ namespace OmiLAXR.ReCoPa.Network
             _disposed = true;
 
             Disconnect();
+            _heartbeatRunning = false;
             try { _cts?.Dispose(); } catch { }
             _cts = null;
             _runTask = null;
+            _heartbeatTask = null;
         }
 
         // ------------------------------------------------------------
@@ -195,6 +206,14 @@ namespace OmiLAXR.ReCoPa.Network
 
                     _everConnected = true;
                     _attempt = 0;
+                    _heartbeatReceived = true;
+
+                    // Starte Heartbeat wenn aktiviert
+                    if (_opt.EnableHeartbeat && !_heartbeatRunning)
+                    {
+                        _heartbeatRunning = true;
+                        _heartbeatTask = Task.Run(() => HeartbeatLoopAsync(ct), ct);
+                    }
 
                     await ReceiveLoopAsync(ct).ConfigureAwait(false);
                 }
@@ -204,11 +223,13 @@ namespace OmiLAXR.ReCoPa.Network
                 }
                 catch (Exception ex)
                 {
+                    UnityEngine.Debug.LogError($"[ReCoPa] Connection error: {ex.GetType().Name}: {ex.Message}");
                     RaiseOnContext(() => OnError?.Invoke(this, ex.Message));
                     RaiseOnContext(() => OnReconnectError?.Invoke(this, ex));
                 }
                 finally
                 {
+                    _heartbeatRunning = false;
                     SafeClose();
                     RaiseOnContext(() => OnDisconnected?.Invoke(this, EventArgs.Empty));
                 }
@@ -219,6 +240,7 @@ namespace OmiLAXR.ReCoPa.Network
                 _attempt++;
                 RaiseOnContext(() => OnReconnectAttempt?.Invoke(this, _attempt));
 
+                // Unlimited retries wenn ReconnectionAttempts <= 0
                 if (_opt.ReconnectionAttempts > 0 && _attempt > _opt.ReconnectionAttempts)
                 {
                     RaiseOnContext(() => OnReconnectFailed?.Invoke(this, EventArgs.Empty));
@@ -226,6 +248,7 @@ namespace OmiLAXR.ReCoPa.Network
                 }
 
                 var delay = ComputeReconnectDelay(_attempt);
+                UnityEngine.Debug.Log($"[ReCoPa] Reconnect attempt {_attempt}, waiting {delay.TotalSeconds:F1}s");
                 try { await Task.Delay(delay, ct).ConfigureAwait(false); }
                 catch (OperationCanceledException) { break; }
             }
@@ -325,9 +348,33 @@ namespace OmiLAXR.ReCoPa.Network
             try
             {
                 tcp.NoDelay = _opt.NoDelay;
-                if (_opt.KeepAlive) tcp.Client.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.KeepAlive, true);
+                
+                if (_opt.KeepAlive)
+                {
+                    tcp.Client.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.KeepAlive, true);
+                    
+                    // OS-Level Keep-Alive Einstellungen (für Verbindungs-Stabilitaet)
+                    try
+                    {
+                        // Linux/macOS: TCP Keep-Alive Tuning
+                        #if !UNITY_EDITOR && !UNITY_STANDALONE_WIN
+                        tcp.Client.SetSocketOption(SocketOptionLevel.Tcp, SocketOptionName.KeepAliveTime, _opt.TcpKeepAliveIdleSeconds);
+                        tcp.Client.SetSocketOption(SocketOptionLevel.Tcp, SocketOptionName.KeepAliveInterval, _opt.TcpKeepAliveIntervalSeconds);
+                        tcp.Client.SetSocketOption(SocketOptionLevel.Tcp, SocketOptionName.KeepAliveProbes, _opt.TcpKeepAliveProbes);
+                        #endif
+                    }
+                    catch 
+                    { 
+                        // Einige Optionen sind ggf. nicht verfügbar - das ist ok
+                    }
+                }
+
+                UnityEngine.Debug.Log($"[ReCoPa] Socket configured - NoDelay: {tcp.NoDelay}, KeepAlive: {_opt.KeepAlive}");
             }
-            catch { /* ignore platform limits */ }
+            catch (Exception ex) 
+            { 
+                UnityEngine.Debug.LogWarning($"[ReCoPa] Socket configuration warning: {ex.Message}");
+            }
         }
 
         private void SafeClose()
@@ -336,6 +383,89 @@ namespace OmiLAXR.ReCoPa.Network
             try { _tcp?.Close(); } catch { }
             _stream = null;
             _tcp = null;
+        }
+
+        // ============================================================
+        // Heartbeat System - Staebiltaet durch regelmäßige Pings
+        // ============================================================
+        private async Task HeartbeatLoopAsync(CancellationToken ct)
+        {
+            try
+            {
+                while (!ct.IsCancellationRequested && _heartbeatRunning)
+                {
+                    try
+                    {
+                        // Warte bis zum nächsten Heartbeat-Intervall
+                        await Task.Delay(_opt.HeartbeatIntervalMs, ct).ConfigureAwait(false);
+
+                        // Prüfe ob noch verbunden
+                        if (_stream == null || !Connected)
+                        {
+                            UnityEngine.Debug.LogWarning($"[ReCoPa] Heartbeat: Stream ist null oder disconnected");
+                            break;
+                        }
+
+                        // Reset Pong-Flag und sende Ping um die Verbindung am Leben zu halten
+                        _heartbeatReceived = false;
+                        
+                        try
+                        {
+                            // Sende Ping - dies faellt auf je if Stream nicht mehr writable ist
+                            await EmitAsync("heartbeat:pong", new { ts = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() })
+                                .ConfigureAwait(false);
+                            
+                            UnityEngine.Debug.Log($"[ReCoPa] Heartbeat sent ♥");
+                        }
+                        catch (Exception ex)
+                        {
+                            UnityEngine.Debug.LogWarning($"[ReCoPa] Failed to send heartbeat: {ex.GetType().Name}");
+                            // Heartbeat-Send-Fehler = Verbindung ist kaputt
+                            throw;
+                        }
+
+                        // Warte auf Pong-Response mit Timeout
+                        var timeout = _opt.HeartbeatTimeoutMs;
+                        var sw = System.Diagnostics.Stopwatch.StartNew();
+                        var maxWaitTime = Math.Min(timeout, _opt.HeartbeatIntervalMs / 2);
+
+                        while (sw.ElapsedMilliseconds < maxWaitTime && !_heartbeatReceived && _heartbeatRunning && !ct.IsCancellationRequested)
+                        {
+                            await Task.Delay(50, ct).ConfigureAwait(false);
+                        }
+
+                        if (!_heartbeatReceived && _heartbeatRunning)
+                        {
+                            UnityEngine.Debug.LogWarning($"[ReCoPa] Heartbeat timeout (>{maxWaitTime}ms ohne Pong) - forcing reconnect");
+                            throw new TimeoutException($"Heartbeat timeout - no pong within {maxWaitTime}ms");
+                        }
+
+                        if (_heartbeatReceived)
+                        {
+                            UnityEngine.Debug.Log($"[ReCoPa] Heartbeat OK ✓");
+                        }
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        break;
+                    }
+                    catch (Exception ex)
+                    {
+                        UnityEngine.Debug.LogError($"[ReCoPa] Heartbeat error: {ex.GetType().Name}: {ex.Message}");
+                        // Heartbeat-Fehler = Reconnect triggern
+                        throw;
+                    }
+                }
+            }
+            finally
+            {
+                _heartbeatRunning = false;
+            }
+        }
+
+        private void HandleHeartbeatPing()
+        {
+            _heartbeatReceived = true;
         }
 
         private static (string host, int port) ParseHostPort(string urlOrHostPort)

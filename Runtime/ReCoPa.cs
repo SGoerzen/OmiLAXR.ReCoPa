@@ -43,7 +43,7 @@ namespace OmiLAXR.ReCoPa
         }
 
         // TCP Socket client
-        private UnitySocketClient _socket;
+        private SocketClient _socket;
 
         [SerializeField] private Pipeline targetPipeline;
         public xApiDataProvider DataProvider { get; private set; }
@@ -151,8 +151,10 @@ namespace OmiLAXR.ReCoPa
 
             _eyeTrackingModule = targetPipeline.GetComponentInChildren<ICalibratable>();
 
+            targetPipeline.enabled = false;
             Init();
             InitSocket();
+            targetPipeline.enabled = true;
         }
         
         private void Init()
@@ -186,8 +188,6 @@ namespace OmiLAXR.ReCoPa
 
         private void HookIntoLearner(Pipeline p)
         {
-            p.AfterStartedPipeline -= HookIntoLearner;
-
             _actions = p.Actions.Keys.ToArray();
             Array.Sort(_actions);
 
@@ -200,8 +200,6 @@ namespace OmiLAXR.ReCoPa
                 gestures = _gestures,
                 actions = _actions
             };
-
-            StopTracking();
             
             // enable all hooked items
             foreach (var hooked in _hookedComponents) 
@@ -250,7 +248,7 @@ namespace OmiLAXR.ReCoPa
         {
             if (_socket != null) return;
 
-            _socket = new UnitySocketClient(connectionUrl, new SocketClientOptions()
+            _socket = new SocketClient(connectionUrl, new SocketClientOptions()
             {
                 Reconnection = doReconnection,
                 ReconnectionDelay = reconnectionDelay,
@@ -261,7 +259,7 @@ namespace OmiLAXR.ReCoPa
                     ["clientType"] = "participant",
                     ["version"] = "2.0.0"
                 }
-            }, UnitySocketClient.UnityThreadScope.Update);
+            });
 
             _socket.OnConnected += (_, __) => OnConnected();
             _socket.OnReconnected += (_, __) => OnReconnected();
