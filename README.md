@@ -1,5 +1,7 @@
 # OmiLAXR.ReCoPa
 
+[![DOI](https://zenodo.org/badge/1118470726.svg)](https://doi.org/10.5281/zenodo.18496701)
+
 Unity package that connects OmiLAXR to ReCoPa (Researcher Companion Panel). It synchronizes scenario and tracking metadata, exchanges configuration details, and relays OmiLAXR xAPI statements while enabling remote session control hooks.
 
 **Highlights**
