@@ -5,13 +5,12 @@
   "description": "An OmiLAXR module for managing communication between ReCoPa and OmiLAXR.",
   "unity": "2021.3",
   "unityRelease": "15f1",
-  "documentationUrl": "https://gitlab.com/learntech-rwth/omilaxr-framework/v2/omilaxr.modules.recopa/-/wikis",
-  "changelogUrl": "https://gitlab.com/learntech-rwth/omilaxr-framework/v2/omilaxr.modules.recopa/-/blob/main/CHANGELOG",
-  "licensesUrl": "https://gitlab.com/learntech-rwth/omilaxr-framework/v2/omilaxr.modules.recopa/-/blob/main/LICENSE",
+  "documentationUrl": "https://omilaxr.dev/",
+  "changelogUrl": "https://github.com/SGoerzen/OmiLAXR.ReCoPa/blob/main/CHANGELOG.md",
+  "licensesUrl": "https://github.com/SGoerzen/OmiLAXR.ReCoPa/blob/main/LICENSE",
   "homepage": "https://omilaxr.dev/",
   "dependencies": {
-    "com.rwth.unity.omilaxr": "2.1.1",
-    "com.unity.nuget.newtonsoft-json": "3.0.2"
+    "com.rwth.unity.omilaxr": "2.1.1"
   },
   "keywords": [
     "OmiLAXR",
@@ -19,9 +18,8 @@
     "ReCoPa",
     "Researcher Companion Panel",
     "Learning Analytics",
-    "Virtual Reality",
-    "Augmented Reality",
-    "eXtended Reality"
+    "Dashboard",
+    "Live Charts" 
   ],
   "author": {
     "name": "Sergej Görzen",

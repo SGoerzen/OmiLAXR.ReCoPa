@@ -1,92 +1,70 @@
-# OmiLAXR ReCoPa Adapter
+# OmiLAXR.ReCoPa
 
-Each folder has own `README.md` files with more instructions.
+Unity package that connects OmiLAXR to ReCoPa (Researcher Companion Panel). It synchronizes scenario and tracking metadata, exchanges configuration details, and relays OmiLAXR xAPI statements while enabling remote session control hooks.
 
-## Adapter dependencies
-The adapter has following third-party dependencies:
+**Highlights**
+- Socket connection to ReCoPa with automatic reconnection.
+- Scenario + tracking metadata synchronization.
+- Forwarding of xAPI statements through the ReCoPa endpoint.
+- Remote control hooks for pause/resume and calibration events.
+- Optional filters for limiting tracked game objects.
 
-- `com.pimdewitte.unitymainthreaddispatcher`: For dispatching main game thread from asynchronous socket io thread.
-- ``
+## Compatibility
 
-## Install by using scoped registry
-1. Ensure in "Project settings" > "Package Manager" that you have the scoped registry with following settings:
-    - Name: npmjs
-    - URL: http://registry.npmjs.com
-    - Scope(s): `com.rwth.unity.omilaxr.modules.recopa`
-2. Go to Package Manager.
-3. Click on the (+) button.
-4. Select 'Add package by name'.
-5. Place in 'Name' field: `com.rwth.unity.omilaxr.modules.recopa`.
+This package targets Unity `2021.3` and is tested with `2021.3.15f1` (see `package.json`).
 
-### Adding scoped registry by using manifest.json (also recommended - quick way)
-1. Alternatively, instead of adding the scoped registry inside Unity editor you can do it by using `manifest.json` file.
-2. Go to you project root and then open `Packages/manifest.json`.
-3. Ensure following entries in your file: `"scopedRegistries": [
-   {
-   "name": "npmjs",
-   "url": "http://registry.npmjs.com/",
-   "scopes": [
-   "com.rwth.unity.omilaxr.modules.recopa"
-   ]
-   }]`.
-4. By the way, you can also add here this package by adding `"com.rwth.unity.omilaxr.modules.recopa": "2.0.0"` to the dependencies (attention you can change the version).
+## Dependencies
 
+- `com.rwth.unity.omilaxr` `2.1.1`
 
-## Install by using Git url
-1. Go to Package Manager.
-2. Click on the (+) button.
-3. Select 'Add package from git URL'.
-4. Paste `https://YOUR_REPOSITORY_URL.git` and confirm.
+## Install
 
-## For Developers
+### Install Using Git URL
 
-To work with this package we recommend to place it somewhere outside your Unity project (if the package gets an own git repository) or in root of your project.
-Than, you can include the package into your project by going to `Window > Package Manager`, click on `(+)` button and finally import the `package.json` of this project by clicking on `Add package from disk`.
+1. Go to **Window** -> **Package Manager**.
+2. Click the `+` button.
+3. Select **Add package from git URL**.
+4. Paste `https://github.com/SGoerzen/OmiLAXR.ReCoPa.git` and confirm.
 
-For production use we recommend to use `Add package form git URL` or using scoped registries (see below).
+### Install via `manifest.json`
 
-## Use another data format instead of xAPI
-Remove references to `xAPI.Registry` and `OmiLAXR.xAPI`.
+Add this to `Packages/manifest.json`:
 
-## Default Folder Structure
+```json
+{
+  "dependencies": {
+    "com.rwth.unity.omilaxr.recopa": "0.0.1"
+  }
+}
+```
 
-Here you can see the default structure of the adapter unity packages. The folders surrounding with (FOLDER) are not delivered by default.
+## Quick Start
 
-- root
-    - (Editor)
-    - Examples
-    - Plugins
-    - Prefabs
-    - Runtime
-        - Actors
-        - Composers
-            - HigherComposers
-        - Endpoints
-        - Extensions
-        - Filters
-        - Hooks
-        - Listeners
-        - Pipelines
-        - TrackingBehaviours
-    - Tests
-        - Runtime
-        - (Editor)
+1. Make sure your scene includes a `LearnerPipeline` from OmiLAXR.
+2. Add the `ReCoPa` component via **Add Component** -> `OmiLAXR / Modules / ReCoPa`.
+3. Set `connectionUrl` to your ReCoPa server (default: `http://127.0.0.1:4567`).
+4. Enter Play mode. The module will connect, publish scenario/tracking metadata, and keep it synchronized.
 
-## Use internal for project
-If you do not wish to publish the package you can add the package in root of your Unity project. Accordingly you have to import your package for your project (see above "For Developers").
+## How It Works
 
-## Publication
+- The `ReCoPa` component hooks a `ReCoPaFilter` and `ReCoPaEndpoint` into the OmiLAXR pipeline at runtime.
+- Scenario data (scene name, tracked objects, actions, gestures) is sent to ReCoPa.
+- Tracking configuration (LRS endpoint + credentials, actor identity, selected actions/gestures) is shared with ReCoPa.
+- Statements produced by OmiLAXR are forwarded via the ReCoPa endpoint.
+- ReCoPa can trigger calibration events and request pause/resume.
 
-You can publish your package at any npm registry.
-It makes sense to publish packages for easier distribution in other projects.
-But we recommend to use `npmjs.com`. [Here](https://docs.npmjs.com/creating-and-publishing-scoped-public-packages) you can get more details.
-But the steps are very easy.
+## Configuration
 
-1. Create an account on `npmjs.com`.
-2. On demand increase your `version` number in `package.json`.
-3. Commit and push your changes.
-4. Open a terminal.
-5. Go to the root of your project.
-6. Run `npm login` and login via browser (or what else you like).
-7. Run `npm publish --access public`.
-8. Wait until publication is ready.
+Key settings on the `ReCoPa` component:
+
+- `connectionUrl`: ReCoPa server URL.
+- `doReconnection`: enable/disable automatic reconnection.
+- `reconnectionDelay`, `reconnectionMaxDelay`, `reconnectionAttempts`: reconnection behavior.
+
+## License
+
+AGPL-3.0-or-later. See `LICENSE`.
+
+## Changelog
+
+See `CHANGELOG.md`.

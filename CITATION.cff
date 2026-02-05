@@ -1,0 +1,42 @@
+﻿cff-version: 1.2.0
+message: "If you use this software, please cite it using the metadata below."
+type: software
+title: "OmiLAXR.ReCoPa"
+version: "0.0.1"
+date-released: 2026-02-05
+repository-code: "https://github.com/SGoerzen/OmiLAXR"
+url: "https://omilaxr.dev/"
+license: "AGPL-3.0-or-later"
+authors:
+  - given-names: "Sergej"
+    family-names: "Görzen"
+    orcid: "https://orcid.org/0000-0003-3853-2435"
+    affiliation: "RWTH Aachen University"
+  - given-names: "Marc"
+    family-names: "Troll"
+    affiliation: "RWTH Aachen University"
+abstract: >
+  OmiLAXR.ReCoPa is a Unity module for OmiLAXR that connects a running XR application
+  to the ReCoPa (Researcher Companion Panel). It synchronizes scenario and tracking
+  metadata, exchanges configuration details, and relays OmiLAXR xAPI statements to the
+  configured endpoints to enable remote monitoring and control.
+keywords:
+  - "Learning Analytics"
+  - "OmiLAXR"
+  - "OmiLAXR Module"
+  - "Researcher Companion Panel"
+  - "Researcher Panel"
+  - "Live Charts"
+preferred-citation:
+  type: software
+  title: "OmiLAXR.ReCoPa"
+  version: "0.0.1"
+  date-released: 2026-02-05
+  url: "https://omilaxr.dev/"
+  authors:
+    - given-names: "Sergej"
+      family-names: "Görzen"
+      orcid: "https://orcid.org/0000-0003-3853-2435"
+    - given-names: "Marc"
+      family-names: "Troll"
+      affiliation: "RWTH Aachen University"
