@@ -125,7 +125,7 @@ namespace OmiLAXR.ReCoPa
         private string[] _actions;
         private string[] _gestures;
 
-        private ICalibratable _eyeTrackingModule;
+        private ICalibratable _calibratable;
         private ReCoPaFilter _filter;
 
         private List<PipelineComponent> _hookedComponents = new List<PipelineComponent>();
@@ -196,7 +196,8 @@ namespace OmiLAXR.ReCoPa
         {
             //isTracking = targetPipeline.IsRunning,
             isTrackingPaused = _isTrackingPaused,
-            //isCalibrated = _eyeTrackingModule?.IsCalibrated ?? false,
+            isCalibrated = _calibratable?.IsCalibrated ?? false,
+            isCalibratable = _calibratable != null,
             computerName = Environment.MachineName,
             actorName = targetPipeline.actor.actorName,
             actorEmail = targetPipeline.actor.actorEmail,
@@ -245,7 +246,7 @@ namespace OmiLAXR.ReCoPa
             var endpoint = HookInto<ReCoPaEndpoint, LearnerPipeline, xApiDataProvider>();
             endpoint.OnSentStatement += SendStatement;
 
-            _eyeTrackingModule = targetPipeline.GetComponentInChildren<ICalibratable>();
+            _calibratable = targetPipeline.GetComponentInChildren<ICalibratable>();
 
             targetPipeline.enabled = false;
             Init();
@@ -273,10 +274,10 @@ namespace OmiLAXR.ReCoPa
         
         private void Init()
         {
-            if (_eyeTrackingModule != null)
+            if (_calibratable != null)
             {
-                _eyeTrackingModule.OnCalibrationStarted += () => SendMeta("calibration:start");
-                _eyeTrackingModule.OnCalibrationEnded += _ => SendMeta("calibration:stop");
+                _calibratable.OnCalibrationStarted += () => SendMeta("calibration:start");
+                _calibratable.OnCalibrationEnded += _ => SendMeta("calibration:stop");
             }
 
             if (!targetPipeline)
@@ -443,13 +444,13 @@ namespace OmiLAXR.ReCoPa
 
             _socket.On("calibration:start", _ =>
             {
-                if (_isShuttingDown || !this || _eyeTrackingModule == null) return;
-                _eyeTrackingModule.StartCalibration();
+                if (_isShuttingDown || !this || _calibratable == null) return;
+                _calibratable.StartCalibration();
             });
             _socket.On("calibration:stop", _ =>
             {
-                if (_isShuttingDown || !this || _eyeTrackingModule == null) return;
-                _eyeTrackingModule.StopCalibration();
+                if (_isShuttingDown || !this || _calibratable == null) return;
+                _calibratable.StopCalibration();
             });
 
             _socket.On("tracking", payload =>
@@ -457,15 +458,15 @@ namespace OmiLAXR.ReCoPa
                 if (_isShuttingDown || !this) return;
                 DispatchTrackingInformation(payload);
             });
-            _socket.On("tracking:start", _ =>
+            _socket.On("tracking:start", payload =>
             {
                 if (_isShuttingDown || !this) return;
-                //DispatchStartTracking(payload);
+                DispatchStartTracking(payload);
             });
-            _socket.On("tracking:stop", _ =>
+            _socket.On("tracking:stop", payload =>
             {
                 if (_isShuttingDown || !this) return;
-                //DispatchStopTracking(payload);
+                DispatchStopTracking(payload);
             });
             _socket.On("tracking:pause", payload =>
             {

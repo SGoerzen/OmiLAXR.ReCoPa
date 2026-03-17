@@ -212,7 +212,7 @@ namespace OmiLAXR.ReCoPa.Network
             if (_disposed) throw new ObjectDisposedException(nameof(SocketClient));
 
             var payload = _serializer.Serialize(data);
-            UnityEngine.Debug.Log($"Emitting event {eventName} with payload {payload}");
+            //UnityEngine.Debug.Log($"Emitting event {eventName} with payload {payload}");
 
             // If connected, send immediately
             if (Connected && _stream != null)

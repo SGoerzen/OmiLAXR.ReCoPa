@@ -28,6 +28,8 @@ namespace OmiLAXR.ReCoPa
         /// </summary>
         public bool isCalibrated;
 
+        public bool isCalibratable;
+
         /// <summary>
         /// Host machine name.
         /// </summary>
