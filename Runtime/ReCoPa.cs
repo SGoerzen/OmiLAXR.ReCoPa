@@ -7,7 +7,6 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
-using System.Reflection;
 using System.Threading;
 using Newtonsoft.Json.Linq;
 using OmiLAXR.Actors.HeartRate;
@@ -97,7 +96,7 @@ namespace OmiLAXR.ReCoPa
         /// <summary>
         /// Session identifier used for tracking registrations.
         /// </summary>
-        [SerializeField] private string sessionId;
+        private Registration _registration;
 
         /// <summary>
         /// True if the underlying socket client is connected.
@@ -134,7 +133,6 @@ namespace OmiLAXR.ReCoPa
         private string sceneName => SceneManager.GetActiveScene().name;
         private bool _isDirty;
         private bool _isMetaDirty;
-        private float _fps;
 
         /// <summary>
         /// Enables automatic reconnection behaviour.
@@ -204,7 +202,7 @@ namespace OmiLAXR.ReCoPa
             actorEmail = targetPipeline.actor.actorEmail,
             activeActorName = targetPipeline.actor.actorName,
             activeActorEmail = targetPipeline.actor.actorEmail,
-            registrationId = sessionId,
+            sessionId = _registration.uuid,
             endpoints = GetEndpointNames(),
             filters = GetFilterNames(),
             actions = _actions ?? Array.Empty<string>(),
@@ -216,6 +214,9 @@ namespace OmiLAXR.ReCoPa
 
         private void Awake()
         {
+            // Keep socket loop/coroutines alive when Unity loses focus (Editor/background).
+            Application.runInBackground = true;
+
             // ✅ capture Unity main thread context
             _unityCtx = SynchronizationContext.Current;
             if (_unityCtx == null)
@@ -229,12 +230,14 @@ namespace OmiLAXR.ReCoPa
 #if UNITY_2021_1_OR_NEWER
             targetPipeline = FindFirstObjectByType<LearnerPipeline>();
             xApiRegistry = FindFirstObjectByType<xApiRegistry>();
+            _registration = FindFirstObjectByType<Registration>();
 #else
             targetPipeline = FindObjectOfType<LearnerPipeline>();
             xApiRegistry = FindObjectOfType<xApiRegistry>();
+            _registration = FindObjectOfType<Registration>();
 #endif
-            _fpsMonitor = targetPipeline.GetComponentInChildren<FpsMonitor>();
-            _heartRateProvider = targetPipeline.GetComponentInChildren<HeartRateProvider>();
+            _fpsMonitor = targetPipeline.GetComponentInParent<FpsMonitor>();
+            _heartRateProvider = targetPipeline.GetComponentInParent<HeartRateProvider>();
             DataProvider = targetPipeline.GetDataProvider<xApiDataProvider>();
             
             _filter = HookInto<ReCoPaFilter, LearnerPipeline, xApiDataProvider>();
@@ -259,7 +262,8 @@ namespace OmiLAXR.ReCoPa
         {
             var dt = Time.unscaledDeltaTime;
             if (dt > 0f)
-                _fps = 1f / dt;
+            {
+            }
         }
 
         private void OnDestroy()
@@ -293,7 +297,7 @@ namespace OmiLAXR.ReCoPa
         private void SendStatement(Endpoint _, IStatement statement)
         {
             if (_socket == null) return;
-            _socket.Emit("clients:statement", statement.ToJsonString());
+            _socket.Emit("statement", statement.ToJsonString());
         }
 
         private void HookIntoLearner(Pipeline p)
@@ -327,7 +331,7 @@ namespace OmiLAXR.ReCoPa
                 SendMeta("tracking:stop");
             };
             
-            _ = _socket.EmitAsync("clients:tracking", JObject.FromObject(config).ToString());
+            _ = _socket.EmitAsync("tracking", JObject.FromObject(config).ToString());
         }
 
         private void StartTracking()
@@ -364,6 +368,7 @@ namespace OmiLAXR.ReCoPa
                 ReconnectionDelay = reconnectionDelay,
                 ReconnectionDelayMax = reconnectionMaxDelay,
                 ReconnectionAttempts = reconnectionAttempts,
+                SessionId = _registration != null ? _registration.uuid : string.Empty,
                 ExtraHeaders = new Dictionary<string, string>()
                 {
                     ["clientType"] = "participant",
@@ -371,17 +376,17 @@ namespace OmiLAXR.ReCoPa
                 }
             });
 
-            _onConnectedHandler ??= (_, __) =>
+            _onConnectedHandler ??= (_, _) =>
             {
                 if (_isShuttingDown || !this) return;
                 OnConnected();
             };
-            _onReconnectedHandler ??= (_, __) =>
+            _onReconnectedHandler ??= (_, _) =>
             {
                 if (_isShuttingDown || !this) return;
                 OnReconnected();
             };
-            _onDisconnectedHandler ??= (_, __) =>
+            _onDisconnectedHandler ??= (_, _) =>
             {
                 if (_isShuttingDown || !this) return;
                 OnDisconnected();
@@ -396,7 +401,7 @@ namespace OmiLAXR.ReCoPa
                 if (_isShuttingDown || !this) return;
                 DebugLog.Error($"Reconnection error '{ex}'.");
             };
-            _onReconnectFailedHandler ??= (_, __) =>
+            _onReconnectFailedHandler ??= (_, _) =>
             {
                 if (_isShuttingDown || !this) return;
                 DebugLog.Error("Failed connecting to ReCoPa. Make sure you have started it.");
@@ -418,56 +423,56 @@ namespace OmiLAXR.ReCoPa
 
             _socket.OnError += _onErrorHandler;
 
-            _socket.On("clients:quit", _ =>
+            _socket.On("quit", _ =>
             {
                 if (_isShuttingDown || !this) return;
                 RunOnUnityThread(Quit);
             });
-            _socket.On("clients:all", _ =>
+            _socket.On("all", _ =>
             {
                 if (_isShuttingDown || !this) return;
                 _isDirty = true;
                 _isMetaDirty = true;
             });
 
-            _socket.On("clients:scenario", payload =>
+            _socket.On("scenario", payload =>
             {
                 if (_isShuttingDown || !this) return;
                 DispatchScenarioInformation(payload);
             });
 
-            _socket.On("clients:calibration:start", _ =>
+            _socket.On("calibration:start", _ =>
             {
                 if (_isShuttingDown || !this || _eyeTrackingModule == null) return;
                 _eyeTrackingModule.StartCalibration();
             });
-            _socket.On("clients:calibration:stop", _ =>
+            _socket.On("calibration:stop", _ =>
             {
                 if (_isShuttingDown || !this || _eyeTrackingModule == null) return;
                 _eyeTrackingModule.StopCalibration();
             });
 
-            _socket.On("clients:tracking", payload =>
+            _socket.On("tracking", payload =>
             {
                 if (_isShuttingDown || !this) return;
                 DispatchTrackingInformation(payload);
             });
-            _socket.On("clients:tracking:start", payload =>
+            _socket.On("tracking:start", _ =>
             {
                 if (_isShuttingDown || !this) return;
                 //DispatchStartTracking(payload);
             });
-            _socket.On("clients:tracking:stop", payload =>
+            _socket.On("tracking:stop", _ =>
             {
                 if (_isShuttingDown || !this) return;
                 //DispatchStopTracking(payload);
             });
-            _socket.On("clients:tracking:pause", payload =>
+            _socket.On("tracking:pause", payload =>
             {
                 if (_isShuttingDown || !this) return;
                 DispatchPauseTracking(payload);
             });
-            _socket.On("clients:tracking:resume", payload =>
+            _socket.On("tracking:resume", payload =>
             {
                 if (_isShuttingDown || !this) return;
                 DispatchResumeTracking(payload);
@@ -561,7 +566,7 @@ namespace OmiLAXR.ReCoPa
             RunOnUnityThread(() =>
             {
                 if (_isShuttingDown || socket == null) return;
-                _ = socket.EmitAsync("clients:info", GetMeta(metaContext));
+                _ = socket.EmitAsync("info", GetMeta(metaContext));
             });
             _isMetaDirty = false;
         }
@@ -593,8 +598,8 @@ namespace OmiLAXR.ReCoPa
             var scenario = GetScenario(reload);
             var tracking = GetTrackingConfig(scenario);
 
-            _ = _socket.EmitAsync("clients:scenario", scenario);
-            _ = _socket.EmitAsync("clients:tracking", tracking);
+            _ = _socket.EmitAsync("scenario", scenario);
+            _ = _socket.EmitAsync("tracking", tracking);
 
             DebugLog.Print("Sent scenario information.");
             _isDirty = false;
@@ -693,20 +698,20 @@ namespace OmiLAXR.ReCoPa
             StartTracking();
         }
 
-        private void DispatchPauseTracking(SocketResponse e) => PauseTracking();
-        private void DispatchResumeTracking(SocketResponse e) => ResumeTracking();
-        private void DispatchStopTracking(SocketResponse e) => StopTracking();
+        private void DispatchPauseTracking(SocketResponse _) => PauseTracking();
+        private void DispatchResumeTracking(SocketResponse _) => ResumeTracking();
+        private void DispatchStopTracking(SocketResponse _) => StopTracking();
 
-        private void DispatchTrackingInformation(SocketResponse e)
+        private void DispatchTrackingInformation(SocketResponse _)
         {
             var tracking = GetScenarioTrackingConfig();
-            _ = _socket.EmitAsync("clients:tracking", JObject.FromObject(tracking));
+            _socket.EmitAsync("tracking", JObject.FromObject(tracking));
         }
 
-        private void DispatchScenarioInformation(SocketResponse e)
+        private void DispatchScenarioInformation(SocketResponse _)
         {
             var scenario = GetScenario();
-            _ = _socket.EmitAsync("clients:scenario", JObject.FromObject(scenario));
+            _socket.EmitAsync("scenario", JObject.FromObject(scenario));
         }
         
         /// <summary>

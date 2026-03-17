@@ -331,14 +331,15 @@ namespace OmiLAXR.ReCoPa.Network
                     }
 
                     // TCP has no headers -> send once as hello event.
-                    if (_opt.ExtraHeaders != null && _opt.ExtraHeaders.Count > 0)
+                    if ((_opt.ExtraHeaders != null && _opt.ExtraHeaders.Count > 0) || !string.IsNullOrWhiteSpace(_opt.SessionId))
                     {
                         var helloObj = new JObject
                         {
                             ["headers"] = JObject.FromObject(_opt.ExtraHeaders),
+                            ["sessionId"] = _opt.SessionId ?? string.Empty,
                             ["ts"] = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
                         };
-                        await EmitAsync("clients:hello", helloObj).ConfigureAwait(false);
+                        await EmitAsync("hello", helloObj).ConfigureAwait(false);
                     }
 
                     // Fire connected/reconnected callbacks.

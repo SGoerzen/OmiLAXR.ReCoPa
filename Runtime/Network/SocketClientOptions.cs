@@ -109,11 +109,14 @@ namespace OmiLAXR.ReCoPa.Network
         /// </summary>
         public bool UseSynchronizationContext = true;
 
-        // Socket.IO "ExtraHeaders" (TCP has no headers -> sent once as "clients:hello")
+        // Socket.IO "ExtraHeaders" (TCP has no headers -> sent once as "hello")
         /// <summary>
-        /// Extra headers to send once on connect as a "clients:hello" payload.
+        /// Extra headers to send once on connect as a "hello" payload.
         /// </summary>
         public Dictionary<string, string> ExtraHeaders = new Dictionary<string, string>();
+
+        // Optional session identifier to include in the initial hello payload.
+        public string SessionId = string.Empty;
 
         // Outgoing buffering when disconnected
         /// <summary>

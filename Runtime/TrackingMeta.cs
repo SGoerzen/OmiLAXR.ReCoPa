@@ -54,9 +54,9 @@ namespace OmiLAXR.ReCoPa
         public string activeActorEmail;
 
         /// <summary>
-        /// LRS registration id for the session.
+        /// Session id for the session.
         /// </summary>
-        public string registrationId;
+        public string sessionId;
 
         /// <summary>
         /// Active endpoint identifiers.
